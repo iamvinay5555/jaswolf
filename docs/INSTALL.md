@@ -406,87 +406,183 @@ services:
 Once JasWolf is running, you can configure Hermes to use it as its
 memory provider.
 
-### Step 1: Install the Hermes plugin
+> **⚠️ Plugin path depends on your Hermes installation type.**
+> Read the section below that matches your setup. Using the wrong path
+> is the #1 cause of "memory provider not found" errors.
+
+---
+
+### 6a. Hermes installed from source / pip (Linux, macOS, CLI)
+
+If you installed Hermes via `pip install hermes-agent` or from the
+GitHub source, plugins live in your user home under `~/.hermes/`.
+
+#### Step 1: Install the plugin
 
 The plugin lives in the JasWolf repo at `integrations/hermes/jaswolf/`.
-Copy it to your Hermes plugins directory:
-
-> **⚠️ Important:** User-installed Hermes plugins go into `~/.hermes/plugins/<name>/`
-> (NOT `~/.hermes/plugins/memory/<name>/`). The `memory/` subdirectory only
-> exists for bundled plugins that ship with Hermes. For third-party plugins
-> like JasWolf, use the flat `plugins/` directory.
 
 ```bash
-# Linux / macOS
-cp -r integrations/hermes/jaswolf ~/.hermes/plugins/jaswolf/
-
-# Windows PowerShell
-Copy-Item -Recurse integrations/hermes/jaswolf $env:USERPROFILE\.hermes\plugins\jaswolf\
+# Copy the plugin into Hermes' plugin directory
+cp -r integrations/hermes/jaswolf ~/.hermes/plugins/memory/jaswolf/
 ```
 
-### Step 2: Configure Hermes
+> **Why `memory/` is needed:** Hermes scans for memory plugins at
+> `~/.hermes/plugins/memory/<name>/`. The `memory/` subdirectory tells
+> Hermes this is a memory provider (not a browser or model-provider plugin).
 
-Edit `~/.hermes/config.yaml` (or `%USERPROFILE%\.hermes\config.yaml` on Windows):
+#### Step 2: Configure Hermes
+
+Edit `~/.hermes/config.yaml`:
 
 ```yaml
 memory:
   provider: jaswolf
 ```
 
-### Step 3: Set environment variables
+#### Step 3: Set environment variables
 
-Add to `~/.hermes/.env` (or the Hermes process environment). On Windows,
-the env file is at `%USERPROFILE%\.hermes\.env`:
+Add to `~/.hermes/.env`:
 
 ```bash
-# The URL of your running JasWolf server
+# JasWolf server address
 JASWOLF_API_URL=http://127.0.0.1:8400
 
 # API key (must match the server's JASWOLF_API_KEYS)
 JASWOLF_API_KEY=jsk-your-key
 
-# User identifier (for multi-user setups)
+# User / agent identity
 JASWOLF_MEMORY_USER_ID=default
-
-# Agent identifier (for multi-agent shared memory)
 JASWOLF_MEMORY_AGENT_ID=hermes
-
-# Memory namespace
 JASWOLF_MEMORY_NAMESPACE=default
-
-# Shared namespace (for cross-agent memory)
 JASWOLF_MEMORY_SHARED_NAMESPACE=shared
 
-# Timeout in seconds (JasWolf is fast — 3-8s is fine)
+# Timeout (3-8s recommended — JasWolf is fast)
 JASWOLF_MEMORY_TIMEOUT=8.0
 
 # Optional: journal path for crash-proof writes
 JASWOLF_MEMORY_JOURNAL=/path/to/jaswolf_journal.jsonl
 ```
 
-> **Windows tip:** For the database URL, use the `C:/` drive-letter format:
-> ```
-> JASWOLF_DATABASE_URL=sqlite:///C:/Users/vinay/.jaswolf/data/jaswolf.db
-> ```
-> Do NOT use 4-slash format (`sqlite:////C:/...`) — that converts to a
-> relative path on Windows and SQLite will fail with "unable to open database
-> file".
->
-> For embedding model, start with `hash` to avoid downloading the
-> sentence-transformers model (~100MB):
-> ```
-> JASWOLF_EMBEDDING_PROVIDER=hash
-> ```
-> This gives instant startup. Upgrade to `local` later for better retrieval
-> quality.
+---
 
-### Step 4: Verify the integration
+### 6b. Hermes Desktop app (Windows, macOS GUI)
+
+If you use the **Hermes Desktop app** (electron-based GUI), the plugin
+path is **inside the Hermes installation directory**, not in your home
+folder.
+
+#### Step 1: Find your Hermes installation directory
+
+The default paths are:
+
+| Platform | Hermes install path |
+|---|---|
+| **Windows** | `C:\Users\<you>\AppData\Local\hermes\hermes-agent\` |
+| **macOS** | `~/Library/Application Support/hermes/hermes-agent/` |
+| **Linux** (AppImage) | `~/.local/share/hermes/hermes-agent/` |
+
+To confirm, look for the `plugins/memory/` folder inside that directory:
+
+```powershell
+# Windows PowerShell
+ls "C:\Users\$env:USERNAME\AppData\Local\hermes\hermes-agent\plugins\memory\"
+```
+
+```bash
+# macOS / Linux
+ls ~/Library/Application\ Support/hermes/hermes-agent/plugins/memory/
+```
+
+You should see built-in providers like `honcho`, `mem0`, `hindsight`, etc.
+JasWolf will sit alongside them.
+
+#### Step 2: Install the plugin
+
+Copy the JasWolf plugin into that `plugins/memory/` directory:
+
+```powershell
+# Windows PowerShell (run as administrator if needed)
+Copy-Item -Recurse integrations/hermes/jaswolf `
+  "C:\Users\$env:USERNAME\AppData\Local\hermes\hermes-agent\plugins\memory\jaswolf\"
+```
+
+```bash
+# macOS / Linux
+cp -r integrations/hermes/jaswolf \
+  ~/Library/Application\ Support/hermes/hermes-agent/plugins/memory/jaswolf/
+```
+
+> **⚠️ Important:** The plugin folder MUST be named `jaswolf` (not `JasWolf`
+> or `jaswolf-memory`). This is the name Hermes uses to look up the provider
+> in `memory.provider` config.
+
+#### Step 3: Install the SDK into Hermes' Python environment
+
+The desktop Hermes has its own bundled Python environment. You need to
+install the JasWolf SDK into that specific environment, not your system
+Python:
+
+```powershell
+# Windows PowerShell — find and activate Hermes' Python
+$hermesPython = "C:\Users\$env:USERNAME\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
+
+# Ensure pip is available
+& $hermesPython -m ensurepip --upgrade
+
+# Install JasWolf SDK from your local clone
+cd C:\path\to\jaswolf
+& $hermesPython -m pip install -e .
+```
+
+```bash
+# macOS / Linux
+~/Library/Application\ Support/hermes/hermes-agent/venv/bin/python -m pip install -e /path/to/jaswolf
+```
+
+#### Step 4: Configure Hermes
+
+The config is typically at `~/.hermes/config.yaml` or sometimes inside
+the install directory. Set:
+
+```yaml
+memory:
+  provider: jaswolf
+```
+
+#### Step 5: Set environment variables
+
+On desktop Hermes, env vars go into `~/.hermes/.env`:
+
+```bash
+JASWOLF_API_URL=http://127.0.0.1:8400
+JASWOLF_API_KEY=jsk-your-key
+JASWOLF_MEMORY_USER_ID=default
+JASWOLF_MEMORY_AGENT_ID=hermes
+JASWOLF_MEMORY_NAMESPACE=default
+JASWOLF_MEMORY_SHARED_NAMESPACE=shared
+JASWOLF_MEMORY_TIMEOUT=8.0
+```
+
+---
+
+### 6c. Verify and activate (all installations)
+
+> **Windows tips:**
+> - **Database path:** Use `sqlite:///C:/Users/vinay/.jaswolf/data/jaswolf.db`
+>   (3 slashes + drive letter). Do NOT use `sqlite:////c/Users/...` (4 slashes)
+>   — that converts to a relative path on Windows and SQLite will fail.
+> - **Embeddings:** Start with `hash` to avoid downloading the ~100MB
+>   sentence-transformers model. Set `JASWOLF_EMBEDDING_PROVIDER=hash` in
+>   your env. Upgrade to `local` later for better retrieval quality.
+
+#### Verify the plugin is detected
 
 ```bash
 hermes memory status
 ```
 
-Expected output:
+If everything is correct, you should see:
+
 ```
   Built-in:  always active
   Provider:  jaswolf
@@ -498,16 +594,27 @@ Expected output:
     • jaswolf  (no setup needed) ← active
 ```
 
-### Step 5: Restart Hermes
+If you see `Provider: builtin` and no `jaswolf` in the list:
 
-Memory providers are loaded at startup. Restart your Hermes session:
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Plugin not listed at all | Wrong plugin path | Check 6a vs 6b above |
+| Plugin listed but `NOT installed` | SDK not in Hermes' venv | Run Step 3 again |
+| "Name collision" errors | Plugin folder named same as SDK | This is expected and handled |
+| Still shows `builtin` | Need to restart session | Run `hermes --resume` |
+
+#### Restart Hermes
+
+Memory providers load at session startup. Start a fresh session:
 
 ```bash
-# If using the gateway:
-hermes gateway restart
-
-# If using the CLI, start a new session:
 hermes --resume
+```
+
+Then verify again:
+
+```bash
+hermes memory status
 ```
 
 ---
