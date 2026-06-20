@@ -1,7 +1,7 @@
 # JasWolf Memory 🐺
 
 <p align="center">
-  <img src="assets/logo.svg" width="200" alt="JasWolf Logo"/>
+  <img src="assets/logo.png" width="400" alt="JasWolf Logo"/>
 </p>
 
 **Self-hosted, embeddable long-term memory for AI agents. Built for companionship — so your AI never forgets who you are.**
