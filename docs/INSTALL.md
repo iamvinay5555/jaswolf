@@ -280,14 +280,28 @@ python -m venv .venv
 pip install -e ".[local-embeddings]"
 ```
 
+> **Note:** If `pip install jaswolf[local-embeddings]` takes too long or you
+> just want a quick test, skip the local embeddings and use the hash fallback
+> instead. The hash embedder is instant and has no downloads — just lower
+> retrieval quality. Upgrade to real embeddings later:
+> ```powershell
+> pip install -e .         # no embeddings (uses hash fallback)
+> # Later, upgrade:
+> pip install -e ".[local-embeddings]"
+> ```
+
 #### Step 3: Start the server
 
 ```powershell
 # Generate an API key
 python -c "import secrets; print('jsk-' + secrets.token_hex(32))"
 
-# Start the server
-$env:JASWOLF_API_KEYS = "jsk-your-generated-key"
+# Quick test (no auth required, dev mode):
+$env:JASWOLF_DEV_OPEN_MODE="true"
+jaswolf serve --host 127.0.0.1 --port 8400
+
+# Production (with API key):
+$env:JASWOLF_API_KEYS="jsk-your-generated-key"
 jaswolf serve --host 127.0.0.1 --port 8400
 ```
 
@@ -298,7 +312,8 @@ For a persistent setup, create a PowerShell script `start-jaswolf.ps1`:
 ```powershell
 # start-jaswolf.ps1
 $env:JASWOLF_API_KEYS = "jsk-your-generated-key"
-$env:JASWOLF_DATABASE_URL = "sqlite:///$env:USERPROFILE\.jaswolf\data\jaswolf.db"
+$env:JASWOLF_DATABASE_URL = "sqlite:///C:/Users/$env:USERNAME/.jaswolf/data/jaswolf.db"
+$env:JASWOLF_EMBEDDING_PROVIDER = "hash"   # quick start; change to "local" later
 
 # Create data directory
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.jaswolf\data" | Out-Null
@@ -396,12 +411,17 @@ memory provider.
 The plugin lives in the JasWolf repo at `integrations/hermes/jaswolf/`.
 Copy it to your Hermes plugins directory:
 
+> **⚠️ Important:** User-installed Hermes plugins go into `~/.hermes/plugins/<name>/`
+> (NOT `~/.hermes/plugins/memory/<name>/`). The `memory/` subdirectory only
+> exists for bundled plugins that ship with Hermes. For third-party plugins
+> like JasWolf, use the flat `plugins/` directory.
+
 ```bash
 # Linux / macOS
-cp -r integrations/hermes/jaswolf ~/.hermes/plugins/memory/jaswolf/
+cp -r integrations/hermes/jaswolf ~/.hermes/plugins/jaswolf/
 
 # Windows PowerShell
-Copy-Item -Recurse integrations/hermes/jaswolf $env:USERPROFILE\.hermes\plugins\memory\jaswolf\
+Copy-Item -Recurse integrations/hermes/jaswolf $env:USERPROFILE\.hermes\plugins\jaswolf\
 ```
 
 ### Step 2: Configure Hermes
@@ -415,7 +435,8 @@ memory:
 
 ### Step 3: Set environment variables
 
-Add to `~/.hermes/.env` (or the Hermes process environment):
+Add to `~/.hermes/.env` (or the Hermes process environment). On Windows,
+the env file is at `%USERPROFILE%\.hermes\.env`:
 
 ```bash
 # The URL of your running JasWolf server
@@ -442,6 +463,22 @@ JASWOLF_MEMORY_TIMEOUT=8.0
 # Optional: journal path for crash-proof writes
 JASWOLF_MEMORY_JOURNAL=/path/to/jaswolf_journal.jsonl
 ```
+
+> **Windows tip:** For the database URL, use the `C:/` drive-letter format:
+> ```
+> JASWOLF_DATABASE_URL=sqlite:///C:/Users/vinay/.jaswolf/data/jaswolf.db
+> ```
+> Do NOT use 4-slash format (`sqlite:////C:/...`) — that converts to a
+> relative path on Windows and SQLite will fail with "unable to open database
+> file".
+>
+> For embedding model, start with `hash` to avoid downloading the
+> sentence-transformers model (~100MB):
+> ```
+> JASWOLF_EMBEDDING_PROVIDER=hash
+> ```
+> This gives instant startup. Upgrade to `local` later for better retrieval
+> quality.
 
 ### Step 4: Verify the integration
 
