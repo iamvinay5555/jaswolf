@@ -11,22 +11,16 @@ Usage:
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import sqlite3
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-# Try to import JasWolf — fall back gracefully
-try:
-    from jaswolf import JaswolfMemoryProvider, JaswolfSettings
-    from jaswolf.models import MemoryCreate, MemoryType
-    from jaswolf.service import MemoryService
-    JASWOLF_AVAILABLE = True
-except ImportError:
-    JASWOLF_AVAILABLE = False
+# Detect JasWolf without importing it (these checks talk to the DB directly).
+JASWOLF_AVAILABLE = importlib.util.find_spec("jaswolf") is not None
 
 
 BOLD = "\033[1m"
@@ -91,9 +85,9 @@ def check_database_health(db_path: str) -> dict:
             active = cur.execute("SELECT COUNT(*) FROM memories WHERE state='active'").fetchone()[0]
             archived = cur.execute("SELECT COUNT(*) FROM memories WHERE state='archived'").fetchone()[0]
 
-            print_result(f"Total memories", True, f"{total}")
-            print_result(f"Active memories", True, f"{active}")
-            print_result(f"Archived", True, f"{archived}")
+            print_result("Total memories", True, f"{total}")
+            print_result("Active memories", True, f"{active}")
+            print_result("Archived", True, f"{archived}")
 
             # By type
             types = cur.execute(
@@ -170,7 +164,7 @@ def measure_search_latency(db_path: str, queries: list[str] = None) -> dict:
                 try:
                     start = time.perf_counter()
                     req = urllib.request.Request(
-                        f"http://127.0.0.1:8400/v1/memories/search",
+                        "http://127.0.0.1:8400/v1/memories/search",
                         data=payload, headers=headers
                     )
                     with urllib.request.urlopen(req, timeout=10) as r:
@@ -218,7 +212,7 @@ def run_full_benchmark(db_path: str):
     print(f"  Active:  {active:>6}")
     print(f"  Archived:{archived:>6}")
     print(f"  Deleted: {total - active - archived:>6}")
-    print(f"  ─────────────────")
+    print("  ─────────────────")
     print(f"  Total:   {total:>6}")
 
     # Type distribution
@@ -279,13 +273,13 @@ def print_summary(health, latency):
 
     if pct >= 85:
         print(f"\n  {GREEN}{BOLD}  ★★★  EXCELLENT  ★★★{RESET}")
-        print(f"  Your JasWolf memory engine is healthy and performing well!")
+        print("  Your JasWolf memory engine is healthy and performing well!")
     elif pct >= 50:
         print(f"\n  {YELLOW}{BOLD}  ★★  FAIR  ★★{RESET}")
-        print(f"  Memory engine is working but may need tuning.")
+        print("  Memory engine is working but may need tuning.")
     else:
         print(f"\n  {RED}{BOLD}  ★  NEEDS ATTENTION  ★{RESET}")
-        print(f"  Something isn't right. Check the details above.")
+        print("  Something isn't right. Check the details above.")
 
     if latency.get("avg_ms"):
         print(f"\n  ⚡ Average search latency: {latency['avg_ms']:.1f}ms")
@@ -300,13 +294,13 @@ def print_summary(health, latency):
 def cmd_compare():
     """Compare memory quality: run test queries and show results."""
     print_header("MEMORY QUALITY COMPARISON")
-    print(f"  This tool helps you compare JasWolf against other providers.\n")
-    print(f"  Coming soon: run standard queries and compare recall quality\n")
-    print(f"  across different embedding models and providers.\n")
+    print("  This tool helps you compare JasWolf against other providers.\n")
+    print("  Coming soon: run standard queries and compare recall quality\n")
+    print("  across different embedding models and providers.\n")
 
     if not JASWOLF_AVAILABLE:
         print(f"  {WARN} JasWolf not installed locally. Install with:\n")
-        print(f"      pip install jaswolf")
+        print("      pip install jaswolf")
         return
 
     # Run a quick demo comparison
@@ -358,7 +352,7 @@ Examples:
 
     if not db_path:
         print(f"  {WARN} No database found.{WARN}")
-        print(f"  Specify one with --db <path> or run JasWolf first.\n")
+        print("  Specify one with --db <path> or run JasWolf first.\n")
         parser.print_help()
         return
 

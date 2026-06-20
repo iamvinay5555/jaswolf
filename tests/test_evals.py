@@ -83,7 +83,7 @@ async def test_eval_passes_and_verdict_gates(settings, service, tmp_path):
 
     probes_path = _write_probes(tmp_path, [
         {"id": "name-warning", "kind": "search", "query": "what should I call Alice",
-         "expect_any": ["mr naik"], "high_salience": True},
+         "expect_any": ["mr smith"], "high_salience": True},
         {"id": "route", "kind": "context", "query": "which route home",
          "expect_any": ["harborfront"]},
     ])

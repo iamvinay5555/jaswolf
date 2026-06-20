@@ -99,8 +99,8 @@ async def test_eval_runs_in_a_bot_scope(settings, service, tmp_path):
 
     probes_path = tmp_path / "p.json"
     probes_path.write_text(_json.dumps({"probes": [
-        {"id": "naik", "kind": "context", "query": "what should I call Alice",
-         "expect_any": ["mr naik"], "high_salience": True},
+        {"id": "name-warning", "kind": "context", "query": "what should I call Alice",
+         "expect_any": ["mr smith"], "high_salience": True},
         {"id": "no-jasmine-leak", "kind": "context", "query": "telegram tone",
          "forbid": ["jasmine main bot"]},
     ]}))

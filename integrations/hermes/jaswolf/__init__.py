@@ -50,7 +50,7 @@ class JaswolfProvider(MemoryProvider):
             import jaswolf
             from jaswolf import JaswolfMemoryProvider
         except Exception:
-            logger.warning("jaswolf provider unavailable: `pip install jas0` in the Hermes venv")
+            logger.warning("jaswolf provider unavailable: `pip install jaswolf` in the Hermes venv")
             return False
         # Capability guard (2026-06-15 incident): a stale SDK in the Hermes venv
         # lacked `shared_namespace`, so the provider activated green but every

@@ -10,7 +10,7 @@ services:
       # remote access instead of exposing the API to the internet
       - "127.0.0.1:8400:8400"
     environment:
-      JASWOLF_DATABASE_URL: postgresql://jaswolf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/jas0
+      JASWOLF_DATABASE_URL: postgresql://jaswolf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/jaswolf
       JASWOLF_REDIS_URL: redis://redis:6379/0
       JASWOLF_API_KEYS: ${JASWOLF_API_KEYS:-}
       JASWOLF_EMBEDDING_PROVIDER: ${JASWOLF_EMBEDDING_PROVIDER:-auto}

@@ -1,4 +1,4 @@
--- JAS0 initial schema (PostgreSQL + pgvector)
+-- JasWolf initial schema (PostgreSQL + pgvector)
 -- __EMBED_DIM__ is replaced with the configured embedding dimension at apply time.
 
 CREATE EXTENSION IF NOT EXISTS vector;

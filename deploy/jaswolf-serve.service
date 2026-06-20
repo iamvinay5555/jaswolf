@@ -16,7 +16,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/jaswolf/.hermes/repos/jas0
+WorkingDirectory=/home/jaswolf/.hermes/repos/jaswolf
 Environment=JASWOLF_DATABASE_URL=sqlite:////home/jaswolf/.hermes/jaswolf_shadow/data/jaswolf_shadow_bge_small.db
 Environment=JASWOLF_EMBEDDING_PROVIDER=local
 Environment=JASWOLF_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5

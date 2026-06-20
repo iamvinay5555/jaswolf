@@ -64,7 +64,7 @@ jaswolf stats [--user-id alice]        # counts by state/type
 Suggested cron on the VPS:
 
 ```cron
-0 4 * * * /opt/jaswolf/.venv/bin/jaswolf consolidate --user-id alice >> /var/log/jas0-consolidate.log 2>&1
+0 4 * * * /opt/jaswolf/.venv/bin/jaswolf consolidate --user-id alice >> /var/log/jaswolf-consolidate.log 2>&1
 ```
 
 ## Backups & recovery

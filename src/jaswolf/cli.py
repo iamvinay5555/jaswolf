@@ -103,7 +103,7 @@ def _diagnose_remote(args: argparse.Namespace) -> None:
             emb = health.get("embeddings", {})
             store = health.get("storage", {})
             lines = [
-                "## JASWOLF diagnostic report (remote)",
+                "## JasWolf diagnostic report (remote)",
                 f"- target: {args.api_url} · status: {health.get('status', '?')}",
                 f"- storage: {store.get('backend')} (ok={store.get('ok')}"
                 f" integrity={store.get('integrity', '?')})",
@@ -151,7 +151,7 @@ def _diagnose(args: argparse.Namespace) -> None:
         stats = await service.stats(user_id=args.user_id)
         s = service.settings
         lines = [
-            "## JASWOLF diagnostic report",
+            "## JasWolf diagnostic report",
             f"- jaswolf {__version__} · python {platform.python_version()} · {platform.platform()}",
             f"- storage: {health['storage']['backend']} (ok={health['storage']['ok']}"
             f" integrity={health['storage'].get('integrity', '?')}) · url: {_redact(s.database_url)}",

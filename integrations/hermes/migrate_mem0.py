@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sync memories from Mem0 into JasWolf — safe to re-run (idempotent).
 
-Pulls every memory Mem0 holds for the user and adds each to the running JAS0
+Pulls every memory Mem0 holds for the user and adds each to the running JasWolf
 REST server. JASWOLF dedups on content hash + near-duplicate vector match, so
 re-running only *adds what's missing* and reinforces the rest — it never
 duplicates. Mem0 is read-only here; nothing on the Mem0 side is changed.
@@ -156,7 +156,7 @@ async def sync(apply: bool) -> int:
         f"{reinforced} already in JasWolf (deduped), {failed} failed."
     )
     if created == 0 and failed == 0:
-        print("→ JAS0 was already fully in sync with Mem0. Nothing was missing.")
+        print("→ JasWolf was already fully in sync with Mem0. Nothing was missing.")
     return 1 if failed else 0
 
 

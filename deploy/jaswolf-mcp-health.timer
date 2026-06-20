@@ -1,6 +1,6 @@
 # Runs the health probe every 2 minutes (and 2 min after boot).
 [Unit]
-Description=Periodic JAS0 MCP health probe
+Description=Periodic JasWolf MCP health probe
 
 [Timer]
 OnBootSec=2min
