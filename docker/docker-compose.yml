@@ -1,0 +1,80 @@
+name: jaswolf
+
+services:
+  jaswolf:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      # localhost-only by default: front with a reverse proxy / Tailscale for
+      # remote access instead of exposing the API to the internet
+      - "127.0.0.1:8400:8400"
+    environment:
+      JASWOLF_DATABASE_URL: postgresql://jaswolf:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/jas0
+      JASWOLF_REDIS_URL: redis://redis:6379/0
+      JASWOLF_API_KEYS: ${JASWOLF_API_KEYS:-}
+      JASWOLF_EMBEDDING_PROVIDER: ${JASWOLF_EMBEDDING_PROVIDER:-auto}
+      JASWOLF_OPENAI_API_KEY: ${JASWOLF_OPENAI_API_KEY:-}
+      JASWOLF_LLM_BASE_URL: ${JASWOLF_LLM_BASE_URL:-}
+      JASWOLF_LLM_API_KEY: ${JASWOLF_LLM_API_KEY:-}
+      JASWOLF_LLM_MODEL: ${JASWOLF_LLM_MODEL:-}
+      JASWOLF_EXTRACTION_STRATEGY: ${JASWOLF_EXTRACTION_STRATEGY:-rules}
+      JASWOLF_LOG_LEVEL: ${JASWOLF_LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: jaswolf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: jaswolf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jaswolf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Optional monitoring stack: docker compose --profile monitoring up -d
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["monitoring"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD in .env}
+    volumes:
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  promdata:
+  grafanadata:

@@ -1,0 +1,35 @@
+# JASWOLF MCP memory server — long-lived, prewarmed, auto-restart, boot-persistent.
+# Install (system service, runs as the jaswolf user):
+#   sudo cp deploy/jaswolf-mcp.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jaswolf-mcp
+# Edit paths/user/env to match your box. Hermes should start AFTER this unit
+# (add to the Hermes unit:  After=jaswolf-mcp.service  Wants=jaswolf-mcp.service).
+
+[Unit]
+Description=JASWOLF MCP memory server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jaswolf
+WorkingDirectory=/home/jaswolf/.hermes/repos/jas0
+Environment=JASWOLF_DATABASE_URL=sqlite:////home/jaswolf/.hermes/jaswolf_shadow/data/jaswolf_shadow_bge_small.db
+Environment=JASWOLF_EMBEDDING_PROVIDER=local
+Environment=JASWOLF_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+Environment=JASWOLF_EMBEDDING_PREWARM=true
+Environment=JASWOLF_MCP_USER_ID=default
+Environment=JASWOLF_MCP_HOST=127.0.0.1
+Environment=JASWOLF_MCP_PORT=8765
+ExecStart=/home/jaswolf/.hermes/repos/jaswolf/.venv/bin/jaswolf mcp --transport http
+# crashes self-heal in seconds
+Restart=always
+RestartSec=3
+# the model loads at startup (prewarm) — allow time before failure
+TimeoutStartSec=180
+# light hardening / resource ceilings (tune to the box)
+MemoryMax=2G
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

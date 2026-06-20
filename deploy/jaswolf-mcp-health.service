@@ -1,0 +1,15 @@
+# Watchdog: probe /healthz and restart the server if it is DOWN or HUNG.
+# Restart=always in jaswolf-mcp.service only catches clean exits/crashes — a hung
+# process (alive but unresponsive) needs this active probe.
+# Install with jaswolf-mcp-health.timer:
+#   sudo cp deploy/jaswolf-mcp-health.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jaswolf-mcp-health.timer
+
+[Unit]
+Description=JASWOLF MCP health probe (restart server if unresponsive)
+After=jaswolf-mcp.service
+
+[Service]
+Type=oneshot
+# exit non-zero (down/degraded/hung past --timeout) -> restart the server
+ExecStart=/bin/sh -c '/home/jaswolf/.hermes/repos/jaswolf/.venv/bin/jaswolf mcp-health --timeout 5 || systemctl restart jaswolf-mcp.service'

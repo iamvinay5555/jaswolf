@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jaswolf"
+version = "0.1.0"
+description = "JasWolf — self-hosted long-term memory for AI agents. Built for companionship."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Vinay Kumar & Jasmine" }]
+keywords = ["llm", "memory", "agents", "hermes", "mem0", "vector-search"]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "httpx>=0.26",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29"]
+redis = ["redis>=5.0"]
+local-embeddings = ["sentence-transformers>=2.5"]
+metrics = ["prometheus-client>=0.19"]
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.3", "mcp>=1.2"]
+all = ["jaswolf[postgres,redis,metrics,mcp]"]
+
+[project.scripts]
+jaswolf = "jaswolf.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+jaswolf = ["storage/migrations/*.sql"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

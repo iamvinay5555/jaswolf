@@ -1,0 +1,37 @@
+# JASWOLF REST server — backs the Hermes memory-provider plugin (the cutover path).
+# This replaces jaswolf-mcp.service for the memory-provider deployment: the Hermes
+# plugin talks to this REST API; MCP is only needed if you also want
+# model-driven tools. Run ONE JASWOLF server on the DB (not serve + mcp + embedded).
+#
+# Install (user service, matches the staging setup):
+#   cp deploy/jaswolf-serve.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now jaswolf-serve
+# Watchdog: point jaswolf-mcp-health.{service,timer} at http://127.0.0.1:8400/health
+# (the REST /health now returns 503 when degraded, like the MCP /healthz).
+
+[Unit]
+Description=JASWOLF REST memory server (Hermes memory provider backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jaswolf/.hermes/repos/jas0
+Environment=JASWOLF_DATABASE_URL=sqlite:////home/jaswolf/.hermes/jaswolf_shadow/data/jaswolf_shadow_bge_small.db
+Environment=JASWOLF_EMBEDDING_PROVIDER=local
+Environment=JASWOLF_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+Environment=JASWOLF_EMBEDDING_PREWARM=true
+# --- context-gate settings the GO_PILOT eval was earned with (config parity!) ---
+Environment=JASWOLF_CONTEXT_NOISE_Z=4.5
+Environment=JASWOLF_KEYWORD_MAX_DF_RATIO=0.005
+# --- auth: REST API refuses to start without a key unless dev-open (localhost) ---
+Environment=JASWOLF_API_KEYS=CHANGE_ME_hermes_local_key
+ExecStart=/home/jaswolf/.hermes/repos/jaswolf/.venv/bin/jaswolf serve --host 127.0.0.1 --port 8400
+Restart=always
+RestartSec=3
+TimeoutStartSec=180
+MemoryMax=2G
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

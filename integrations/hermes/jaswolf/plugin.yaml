@@ -1,0 +1,9 @@
+name: jaswolf
+version: 1.0.0
+description: "JASWOLF — self-hosted local memory: deterministic extraction, corpus-calibrated context gate, supersession, temporal current-state. Host-driven (prefetch + sync_turn), delegates to a local `jaswolf serve` REST server."
+# JASWOLF is a private repo, so it is NOT auto-installed here. Install the SDK into
+# the Hermes venv manually (see integrations/hermes/README.md):
+#   pip install "jas0 @ git+https://<token>@github.com/iamalice5555/jaswolf.git"
+# Only the SDK is needed in the Hermes venv (httpx/pydantic) — no torch, since
+# embeddings run in the separate `jaswolf serve` process.
+pip_dependencies: []
