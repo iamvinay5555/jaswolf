@@ -1,0 +1,67 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! 🐺
+        Please don't paste live memory contents or secrets — redact first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >
+        Output of `jaswolf diagnose` (or, against a running server,
+        `jaswolf diagnose --api-url http://127.0.0.1:8400`). Redact any secrets.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: JasWolf version
+      placeholder: "0.1.0  (jaswolf --version / pip show jaswolf)"
+    validations:
+      required: false
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Storage backend
+      options:
+        - SQLite
+        - PostgreSQL
+        - Not sure
+    validations:
+      required: false
+  - type: textarea
+    id: env
+    attributes:
+      label: OS / Python
+      placeholder: "e.g. macOS 14 / Python 3.12, or Windows 11 / Python 3.11"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell
+    validations:
+      required: false

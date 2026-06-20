@@ -8,7 +8,7 @@ plugin against Hermes internals. This is the supported cutover path.
 ## Install
 
 ```bash
-pip install "jaswolf[mcp] @ git+https://github.com/iamalice5555/jaswolf.git"
+pip install "jaswolf[mcp] @ git+https://github.com/iamvinay5555/jaswolf.git"
 # CPU-only VPS: install CPU torch first (see INSTALL.md) before local-embeddings
 ```
 

@@ -97,7 +97,7 @@ blocking / degraded / cosmetic — and any workaround found.
 1. **GitHub issue** (preferred — keeps history searchable):
 
    ```bash
-   gh issue create --repo iamalice5555/jaswolf \
+   gh issue create --repo iamvinay5555/jaswolf \
      --title "search: relevant memory not recalled after consolidation" \
      --body-file report.md
    ```

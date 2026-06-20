@@ -4,7 +4,8 @@ Thank you for wanting to contribute! 🐺
 
 ## Code of Conduct
 
-Be kind, be constructive, and remember that JasWolf was built with love for companionship.
+Be kind, be constructive, and remember that JasWolf was built with love for
+companionship. Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## How to Contribute
 

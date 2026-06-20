@@ -116,7 +116,7 @@ provider — through the stable MCP tool contract, not Hermes internals.
 
 ### Install & run
 ```bash
-pip install "jaswolf[mcp,local-embeddings] @ git+https://github.com/iamalice5555/jaswolf.git"
+pip install "jaswolf[mcp,local-embeddings] @ git+https://github.com/iamvinay5555/jaswolf.git"
 # CPU-only VPS: install CPU torch FIRST (see INSTALL.md) to avoid the CUDA wheel
 
 # long-lived, prewarmed; pick one transport:

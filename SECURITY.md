@@ -40,6 +40,9 @@ details, corrections. Treat the store like a credentials vault, not a cache.
 
 ## Reporting a vulnerability
 
-Open a private GitHub issue on `iamalice5555/jaswolf` with the `security`
-label, or follow [docs/BUG_REPORTS.md](docs/BUG_REPORTS.md) marking impact
-as `blocking`. Include the minimal repro, never live memory contents.
+Please report privately — do **not** open a public issue. Use GitHub's private
+vulnerability reporting on `iamvinay5555/jaswolf`: the repo's **Security** tab →
+**Report a vulnerability**
+([direct link](https://github.com/iamvinay5555/jaswolf/security/advisories/new)).
+Include the minimal repro, never live memory contents. You can expect an initial
+response within a few days.
