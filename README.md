@@ -1,5 +1,9 @@
 # JasWolf Memory 🐺
 
+<p align="center">
+  <img src="assets/logo.svg" width="200" alt="JasWolf Logo"/>
+</p>
+
 **Self-hosted, embeddable long-term memory for AI agents. Built for companionship — so your AI never forgets who you are.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -188,6 +192,28 @@ Pinned facts in `shared` are visible to every agent. Agent-specific facts stay i
 | [Best Practices](docs/BEST_PRACTICES.md) | Tuning guidance, retrieval quality |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and fixes |
 | [Bug Reports](docs/BUG_REPORTS.md) | How to report issues effectively |
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| [eval_memory.py](scripts/eval_memory.py) | Memory health check, benchmark, and quality comparison tool |
+| [quickstart.py](examples/quickstart.py) | Minimal working example in 30 lines |
+| [shadow_mode.py](examples/shadow_mode.py) | Run JasWolf beside an existing memory provider for comparison |
+| [hermes_integration.py](examples/hermes_integration.py) | Integration example for Hermes Agent |
+
+### Quick Health Check
+
+```bash
+# Basic health check
+python scripts/eval_memory.py --db ./jaswolf.db
+
+# Full benchmark
+python scripts/eval_memory.py --db ./jaswolf.db --bench
+
+# Test search latency
+python scripts/eval_memory.py --db ./jaswolf.db --latency
+```
 
 ---
 
