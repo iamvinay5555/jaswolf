@@ -2,7 +2,7 @@
 
 Drop this into Hermes at  plugins/memory/jaswolf/  and activate with
 `memory.provider: jaswolf`. It implements Hermes' host-driven MemoryProvider
-ABC and delegates to a running JASWOLF REST server (`jas0 serve`) via the JASWOLF
+ABC and delegates to a running JASWOLF REST server (`jaswolf serve`) via the JASWOLF
 SDK — so context is injected before each turn and writes happen after each
 turn, exactly like the Mem0 provider path.
 
@@ -16,7 +16,7 @@ stuck or failed turn.
 existing plugin (e.g. plugins/memory/mem0/__init__.py); adjust if needed.
 
 Config (env on the Hermes process):
-  JASWOLF_API_URL        default http://127.0.0.1:8400   (the `jas0 serve` REST API)
+  JASWOLF_API_URL        default http://127.0.0.1:8400   (the `jaswolf serve` REST API)
   JASWOLF_API_KEY        optional; matches the server's api_keys
   JASWOLF_MEMORY_USER_ID default default             (MUST match the DB's user_id)
   JASWOLF_MEMORY_TIMEOUT default 3.0  seconds for a prefetch before degrading
