@@ -5,6 +5,10 @@
 #
 # Install (user service, matches the staging setup):
 #   cp deploy/jaswolf-serve.service ~/.config/systemd/user/
+#   # put the API key in a private 0600 env file (NOT inline in this unit):
+#   mkdir -p ~/.config/jaswolf
+#   printf 'JASWOLF_API_KEYS=%s\n' "$(python3 -c 'import secrets;print(secrets.token_hex(32))')" \
+#       > ~/.config/jaswolf/jaswolf-serve.env && chmod 600 ~/.config/jaswolf/jaswolf-serve.env
 #   systemctl --user daemon-reload && systemctl --user enable --now jaswolf-serve
 # Watchdog: point jaswolf-mcp-health.{service,timer} at http://127.0.0.1:8400/health
 # (the REST /health now returns 503 when degraded, like the MCP /healthz).
@@ -24,8 +28,9 @@ Environment=JASWOLF_EMBEDDING_PREWARM=true
 # --- context-gate settings the GO_PILOT eval was earned with (config parity!) ---
 Environment=JASWOLF_CONTEXT_NOISE_Z=4.5
 Environment=JASWOLF_KEYWORD_MAX_DF_RATIO=0.005
-# --- auth: REST API refuses to start without a key unless dev-open (localhost) ---
-Environment=JASWOLF_API_KEYS=CHANGE_ME_hermes_local_key
+# --- auth: key lives in a private 0600 env file, not inline here (see install
+#     notes above). REST API refuses to start without a key unless dev-open. ---
+EnvironmentFile=%h/.config/jaswolf/jaswolf-serve.env
 ExecStart=/home/jaswolf/.hermes/repos/jaswolf/.venv/bin/jaswolf serve --host 127.0.0.1 --port 8400
 Restart=always
 RestartSec=3

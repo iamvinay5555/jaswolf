@@ -60,8 +60,8 @@ async def main() -> None:
         user_id="alice",
         agent_id="hermes-main",
     )
-    # Remote mode against a shared JASWOLF service is one line instead:
-    # memory = JaswolfMemoryProvider.remote("http://localhost:8400", api_key="...", user_id="alice")
+    # Remote mode against a shared JASWOLF service is one line instead (synchronous, no await):
+    # memory = JaswolfMemoryProvider.remote(base_url="http://localhost:8400", api_key="...", user_id="alice")
 
     agent = HermesAgent(memory)
     history: list[dict[str, str]] = []

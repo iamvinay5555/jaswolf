@@ -84,6 +84,15 @@ def _port_open(host: str, port: int, timeout: float = 0.3) -> bool:
         return False
 
 
+def _scope_label(args: argparse.Namespace) -> str:
+    """' ns=<own>[+<shared>]' suffix for the probe line, or '' when unscoped."""
+    ns = getattr(args, "namespace", None)
+    if not ns:
+        return ""
+    shared = getattr(args, "shared_namespace", None)
+    return f" ns={ns}+{shared}" if shared else f" ns={ns}"
+
+
 def _diagnose_remote(args: argparse.Namespace) -> None:
     """Diagnose a RUNNING jaswolf service over REST — the exact path Hermes uses.
 
@@ -114,15 +123,24 @@ def _diagnose_remote(args: argparse.Namespace) -> None:
                 f" by_type={stats['by_type']}",
             ]
             if args.user_id:
+                search_kw: dict[str, object] = {"record_access": False}
+                ctx_kw: dict[str, object] = {}
+                if args.namespace:  # mirror a bot's production read surface
+                    search_kw["namespace"] = args.namespace
+                    ctx_kw["namespace"] = args.namespace
+                if args.shared_namespace:
+                    ctx_kw["shared_namespace"] = args.shared_namespace
                 t0 = time.perf_counter()
                 hits = client.search(
-                    user_id=args.user_id, query="diagnostic probe", record_access=False
+                    user_id=args.user_id, query="diagnostic probe", **search_kw
                 )
                 rtt_search = (time.perf_counter() - t0) * 1000
-                ctx = client.build_context(user_id=args.user_id, query="diagnostic probe")
+                ctx = client.build_context(
+                    user_id=args.user_id, query="diagnostic probe", **ctx_kw
+                )
                 # server-side latency is the true warm-path number (no network/cold load)
                 lines.append(
-                    f"- live probe (user={args.user_id}): search"
+                    f"- live probe (user={args.user_id}{_scope_label(args)}): search"
                     f" {hits.get('latency_ms', '?')}ms-engine/{rtt_search:.0f}ms-rtt"
                     f"/{hits.get('count', 0)} hits · context"
                     f" {ctx.get('latency_ms', '?')}ms-engine/{ctx.get('token_estimate', 0)} tokens"
@@ -182,18 +200,28 @@ def _diagnose(args: argparse.Namespace) -> None:
             lines[1:1] = warn  # surface right under the title
 
         if args.user_id:
+            sq_kw: dict[str, object] = {}
+            cr_kw: dict[str, object] = {}
+            if args.namespace:  # mirror a bot's production read surface
+                sq_kw["namespace"] = args.namespace
+                cr_kw["namespace"] = args.namespace
+            if args.shared_namespace:
+                cr_kw["shared_namespace"] = args.shared_namespace
             t0 = time.perf_counter()
             hits = await service.search(
-                SearchQuery(user_id=args.user_id, query="diagnostic probe", record_access=False)
+                SearchQuery(
+                    user_id=args.user_id, query="diagnostic probe", record_access=False, **sq_kw
+                )
             )
             search_ms = (time.perf_counter() - t0) * 1000
             t0 = time.perf_counter()
             ctx = await service.build_context(
-                ContextRequest(user_id=args.user_id, query="diagnostic probe")
+                ContextRequest(user_id=args.user_id, query="diagnostic probe", **cr_kw)
             )
             context_ms = (time.perf_counter() - t0) * 1000
             lines.append(
-                f"- live probe (user={args.user_id}): search {search_ms:.1f}ms/{len(hits)} hits"
+                f"- live probe (user={args.user_id}{_scope_label(args)}): "
+                f"search {search_ms:.1f}ms/{len(hits)} hits"
                 f" · context {context_ms:.1f}ms/{ctx.token_estimate} tokens"
             )
         print("\n".join(lines))
@@ -405,6 +433,17 @@ def main(argv: list[str] | None = None) -> None:
     )
     diagnose.add_argument("--api-key", default=None, help="bearer token for --api-url (else $JASWOLF_API_KEY)")
     diagnose.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout for --api-url mode")
+    diagnose.add_argument(
+        "--namespace",
+        default=None,
+        help="scope the live probe to a bot's own namespace — reflects production recall "
+        "instead of the whole corpus (e.g. when a large 'shadow' namespace dominates raw search)",
+    )
+    diagnose.add_argument(
+        "--shared-namespace",
+        default=None,
+        help="also read this shared namespace in the context probe (e.g. shared)",
+    )
     diagnose.set_defaults(fn=_diagnose)
 
     eval_shadow = sub.add_parser(

@@ -158,8 +158,8 @@ JasWolf uses **BAAI/bge-small-en-v1.5** (384 dimensions) by default — excellen
 JasWolf supports **namespaced memory isolation** for multi-agent setups:
 
 ```python
-# Agent A writes to its namespace
-memory_a = await JaswolfMemoryProvider.remote(
+# Agent A writes to its namespace. .remote(...) is synchronous — do not await it.
+memory_a = JaswolfMemoryProvider.remote(
     base_url="http://localhost:8400",
     user_id="alice",
     agent_id="agent-a",
@@ -168,7 +168,7 @@ memory_a = await JaswolfMemoryProvider.remote(
 )
 
 # Agent B reads from its namespace + shared
-memory_b = await JaswolfMemoryProvider.remote(
+memory_b = JaswolfMemoryProvider.remote(
     base_url="http://localhost:8400",
     user_id="alice",
     agent_id="agent-b",

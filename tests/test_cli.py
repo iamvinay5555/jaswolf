@@ -20,3 +20,14 @@ def test_diagnose_smoke(tmp_path, monkeypatch, capsys):
     assert "storage: sqlite" in out
     assert "live probe" in out
     assert "thresholds:" in out
+
+
+def test_diagnose_scoped_probe(tmp_path, monkeypatch, capsys):
+    # production-scope probe: a bot's own namespace + shared, so the probe
+    # reflects real recall instead of the whole corpus.
+    monkeypatch.setenv("JASWOLF_DATABASE_URL", f"sqlite:///{tmp_path}/diag.db")
+    monkeypatch.setenv("JASWOLF_EMBEDDING_PROVIDER", "hash")
+    monkeypatch.setenv("JASWOLF_LOG_LEVEL", "WARNING")
+    main(["diagnose", "--user-id", "alice", "--namespace", "default", "--shared-namespace", "shared"])
+    out = capsys.readouterr().out
+    assert "live probe (user=alice ns=default+shared)" in out

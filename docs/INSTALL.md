@@ -654,7 +654,8 @@ import asyncio
 from jaswolf import JaswolfMemoryProvider
 
 async def test():
-    memory = await JaswolfMemoryProvider.remote(
+    # .remote(...) is synchronous — do not await it; only its methods are async.
+    memory = JaswolfMemoryProvider.remote(
         base_url="http://127.0.0.1:8400",
         user_id="test",
         agent_id="test-agent",

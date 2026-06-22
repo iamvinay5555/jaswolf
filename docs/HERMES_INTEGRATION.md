@@ -17,8 +17,9 @@ provider = await JaswolfMemoryProvider.embedded(
 )
 
 # Remote: shared JASWOLF service (several agents / machines, one memory).
+# .remote(...) is synchronous — do NOT await it; only its methods are async.
 provider = JaswolfMemoryProvider.remote(
-    "http://localhost:8400", api_key="my-key", user_id="alice"
+    base_url="http://localhost:8400", api_key="my-key", user_id="alice"
 )
 ```
 
