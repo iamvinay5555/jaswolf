@@ -13,9 +13,9 @@ keywords — see docs/EVAL.md for the privacy model):
       {"id": "name-warning",
        "kind": "search" | "context",
        "query": "what should I never call the user?",
-       "expect_any": ["naik"],          # pass if ANY appears in results
+       "expect_any": ["smith"],          # pass if ANY appears in results
        "expect_all": [],                 # optional: ALL must appear
-       "forbid": ["mr naik is fine"],    # stale/wrong facts; any hit = NO_GO
+       "forbid": ["mr smith is fine"],    # stale/wrong facts; any hit = NO_GO
        "top_k": 5,                       # search probes only
        "high_salience": true,            # failing one of these blocks GO
        "off_topic": false,               # see below
@@ -39,7 +39,7 @@ from statistics import median
 from typing import Any
 
 from .config import JaswolfSettings
-from .models import ContextRequest, MemoryType, SearchQuery
+from .models import ContextRequest, Memory, SearchQuery
 from .service import MemoryService
 from .storage.base import QueryScope
 
@@ -47,7 +47,20 @@ _PROBE_FIELDS = {
     "id", "kind", "query", "expect_any", "expect_all", "forbid",
     "top_k", "high_salience", "off_topic", "max_similarity",
 }
-_PINNED_TYPES = (MemoryType.PREFERENCE, MemoryType.GOAL)
+
+
+def _is_force_pinned(memory: Memory, settings: JaswolfSettings) -> bool:
+    """Mirror context_builder._force_pins so the eval's notion of "pinned"
+    can't drift from what actually gets force-injected into every context
+    (was previously keyed off memory_type, which silently exempted any
+    non-pinned preference/goal from the off-topic injection count)."""
+    if memory.confidence < settings.pin_min_confidence:
+        return False
+    if (memory.metadata or {}).get("always_pin"):
+        return True
+    if settings.context_pin_requires_always_pin:
+        return False
+    return memory.importance >= settings.context_always_pin_importance
 
 VERDICT_GO = "GO_PILOT"
 VERDICT_CONTINUE = "CONTINUE_SHADOW"
@@ -118,9 +131,11 @@ async def _run_probe(
         max_raw = max(
             (m.similarity for m in result.memories if m.similarity is not None), default=None
         )
-        # relevance-driven injections = anything that isn't a pin; for an
-        # off-topic query every one of these is an irrelevant injection
-        injected = sum(1 for m in result.memories if m.memory.memory_type not in _PINNED_TYPES)
+        # relevance-driven injections = anything that isn't force-pinned; for
+        # an off-topic query every one of these is an irrelevant injection
+        injected = sum(
+            1 for m in result.memories if not _is_force_pinned(m.memory, service.settings)
+        )
 
     off_topic_gate = None
     if probe.get("off_topic", False):

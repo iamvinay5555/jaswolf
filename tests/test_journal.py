@@ -1,4 +1,4 @@
-"""Durable write-ahead journal — survives a crash before a write reaches JasWolf.
+"""Durable write-ahead journal — survives a crash before a write reaches JASWOLF.
 
 Models the 2026-06-15 incident: a memory write lost when the gateway was
 force-restarted mid-turn. With a journal, the write is replayed on startup.
@@ -44,6 +44,34 @@ def test_auto_compacts_past_max_bytes(tmp_path):
     size = (tmp_path / "j.jsonl").stat().st_size
     assert size <= 4000  # bounded, not ~500*~120 bytes
     assert j.pending() == []  # all done -> compacted away
+
+
+def test_concurrent_append_during_compact_survives(tmp_path):
+    """Regression (2026-06-26 Fable review): compact() used to release the
+    lock between reading pending entries and os.replace-ing the file, so a
+    concurrent append landing in that window was destroyed. Hammer appends
+    against repeated compacts and assert nothing pending is ever lost."""
+    import threading
+
+    path = tmp_path / "j.jsonl"
+    j = WriteJournal(str(path))
+    appended: list[str] = []
+
+    def writer():
+        for i in range(200):
+            appended.append(j.append("add_memory", {"content": f"entry {i}"}))
+
+    def compactor():
+        for _ in range(50):
+            j.compact()
+
+    threads = [threading.Thread(target=writer), threading.Thread(target=compactor)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    j.compact()
+    assert {e["id"] for e in j.pending()} == set(appended)  # zero lost writes
 
 
 def test_compact_drops_done(tmp_path):

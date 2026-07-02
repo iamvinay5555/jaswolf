@@ -66,6 +66,100 @@ async def test_consolidation_merges_near_duplicates(service):
     assert untouched.state == MemoryState.ACTIVE
 
 
+async def test_merge_preserves_always_pin_and_metadata(service):
+    """A pinned memory clustering with a higher-importance unpinned canonical
+    must not lose its always_pin (or other metadata) in the merge."""
+    service.settings.dedup_threshold = 0.995
+    service.settings.consolidation_threshold = 0.60
+    pinned, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="User prefers Python for backend work",
+            memory_type=MemoryType.PREFERENCE,
+            importance=0.6,
+            metadata={"always_pin": True, "category": "sacred"},
+        )
+    )
+    unpinned, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="User prefers Python for backend development projects",
+            memory_type=MemoryType.PREFERENCE,
+            importance=0.9,
+        )
+    )
+    report = await service.consolidate(user_id="alice")
+    assert report.memories_merged == 1
+    merge = report.merges[0]
+    # pinned member must win canonical selection despite lower importance
+    assert merge.canonical_id == pinned.id
+    canonical = await service.get(pinned.id)
+    assert canonical.metadata.get("always_pin") is True
+    assert canonical.metadata.get("category") == "sacred"
+    assert unpinned.id in canonical.metadata.get("merged_ids", [])
+
+
+async def test_merge_unions_loser_metadata_when_canonical_wins(service):
+    """Even when the unpinned memory wins canonical, a pinned loser's
+    always_pin must stick to the canonical (safety flags are sticky)."""
+    service.settings.dedup_threshold = 0.995
+    service.settings.consolidation_threshold = 0.60
+    a, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="User prefers Python for backend work",
+            memory_type=MemoryType.PREFERENCE,
+            importance=0.9,
+            metadata={"source": "chat"},
+        )
+    )
+    b, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="User prefers Python for backend development projects",
+            memory_type=MemoryType.PREFERENCE,
+            importance=0.6,
+            metadata={"origin_note": "loser-metadata"},
+        )
+    )
+    report = await service.consolidate(user_id="alice")
+    assert report.merges[0].canonical_id == a.id
+    canonical = await service.get(a.id)
+    assert canonical.metadata.get("source") == "chat"  # canonical wins conflicts
+    assert canonical.metadata.get("origin_note") == "loser-metadata"  # loser's preserved
+
+
+async def test_consolidation_never_merges_across_namespaces(service):
+    """namespace=None spans all namespaces; a shared memory must not be
+    merged away into a default-namespace canonical (would hide it from
+    every other profile reading the shared namespace)."""
+    service.settings.dedup_threshold = 0.995
+    service.settings.consolidation_threshold = 0.60
+    a, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="User prefers Python for backend work",
+            memory_type=MemoryType.PREFERENCE,
+            importance=0.9,
+            namespace="default",
+        )
+    )
+    b, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="User prefers Python for backend development projects",
+            memory_type=MemoryType.PREFERENCE,
+            importance=0.6,
+            namespace="shared",
+        )
+    )
+    report = await service.consolidate(user_id="alice")  # no namespace filter
+    assert report.clusters_found == 0
+    assert report.memories_merged == 0
+    assert (await service.get(a.id)).state == MemoryState.ACTIVE
+    assert (await service.get(b.id)).state == MemoryState.ACTIVE
+
+
 async def test_consolidation_dry_run_changes_nothing(service):
     service.settings.consolidation_threshold = 0.60
     a, b, _ = await _seed(service)

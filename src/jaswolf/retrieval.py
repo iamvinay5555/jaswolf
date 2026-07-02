@@ -95,11 +95,19 @@ class RetrievalEngine:
 
         scored: list[ScoredMemory] = []
         for memory, relevance, raw, kw in results:
+            if kw:
+                relevance = max(relevance, self.settings.keyword_relevance_floor)
             s = score_memory(memory, relevance, self.settings)
             s.similarity = raw
             s.keyword_match = kw
             scored.append(s)
-        scored.sort(key=lambda s: s.final_score, reverse=True)
+        if query.mode == SearchMode.HYBRID:
+            # Hybrid means "best of lexical + semantic": an exact FTS hit should
+            # not be buried below vector-only candidates purely because the hit
+            # has lower importance. Multiple keyword hits still rank by final_score.
+            scored.sort(key=lambda s: (s.keyword_match, s.final_score), reverse=True)
+        else:
+            scored.sort(key=lambda s: s.final_score, reverse=True)
         if query.min_score is not None:
             scored = [s for s in scored if s.final_score >= query.min_score]
         scored = scored[: query.top_k]

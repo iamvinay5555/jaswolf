@@ -49,8 +49,13 @@ def _sweep(args: argparse.Namespace) -> None:
     asyncio.run(_with_service(run))
 
 
+def _print_db_target(service: MemoryService) -> None:
+    print(f"Using DB: {_redact(service.settings.database_url)}")
+
+
 def _consolidate(args: argparse.Namespace) -> None:
     async def run(service: MemoryService) -> None:
+        _print_db_target(service)
         report = await service.consolidate(
             user_id=args.user_id, namespace=args.namespace, dry_run=args.dry_run
         )
@@ -61,6 +66,7 @@ def _consolidate(args: argparse.Namespace) -> None:
 
 def _stats(args: argparse.Namespace) -> None:
     async def run(service: MemoryService) -> None:
+        _print_db_target(service)
         print(json.dumps(await service.stats(user_id=args.user_id), indent=2))
 
     asyncio.run(_with_service(run))

@@ -106,6 +106,47 @@ async def test_search_modes(service):
     assert importance_first[0].memory.content.startswith("User's favorite tea")
 
 
+async def test_hybrid_search_does_not_bury_exact_keyword_hit(service):
+    # Several unrelated, high-importance memories that should NOT match the
+    # query semantically or lexically.
+    for content in [
+        "Mom had an eye checkup today, needs follow-up tests next week",
+        "Family Thailand trip is in August",
+        "JasWolf smoke test: system health audit",
+        "Crash-recovery test: write-ahead journal active",
+    ]:
+        await service.add(MemoryCreate(user_id="alice", content=content, importance=0.85))
+
+    # One low-importance memory containing a rare exact phrase.
+    rare, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="Temporary exact retrieval probe phrase: zebra kumquat lighthouse",
+            importance=0.20,
+        )
+    )
+
+    results = await service.search(
+        SearchQuery(
+            user_id="alice",
+            query="zebra kumquat lighthouse",
+            mode=SearchMode.HYBRID,
+            top_k=10,
+        )
+    )
+    ids = [r.memory.id for r in results]
+    assert rare.id in ids, "exact keyword hit must appear in hybrid results"
+    rank = ids.index(rare.id)
+    # must not be buried below the unrelated high-importance, non-keyword hits
+    non_keyword_above = [
+        r for r in results[:rank] if not r.keyword_match
+    ]
+    assert not non_keyword_above, (
+        f"exact keyword hit ranked #{rank + 1}, behind non-keyword candidates: "
+        f"{[c.memory.content[:40] for c in non_keyword_above]}"
+    )
+
+
 async def test_search_records_access(service):
     memory, _ = await service.add(MemoryCreate(user_id="alice", content="User uses Neovim"))
     await service.search(SearchQuery(user_id="alice", query="neovim editor"))

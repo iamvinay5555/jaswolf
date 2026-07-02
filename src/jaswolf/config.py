@@ -40,6 +40,12 @@ class JaswolfSettings(BaseSettings):
     # query-driven search drops candidates below this cosine similarity, so an
     # important-but-irrelevant memory can never outrank actually relevant ones
     min_relevance: float = 0.1
+    # hybrid/keyword search: an exact lexical (FTS) hit is on its own strong
+    # evidence of relevance, even when the memory's importance is low. Without
+    # a floor, importance (40% of final_score) can bury an exact rare-phrase
+    # match behind unrelated high-importance memories — looks like a search
+    # failure to an agent that only inspects the top few hits.
+    keyword_relevance_floor: float = 0.9
 
     # --- write-path behavior ---
     dedup_threshold: float = 0.95       # cosine sim above which a new memory reinforces an existing one

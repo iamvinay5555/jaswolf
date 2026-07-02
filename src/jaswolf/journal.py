@@ -4,12 +4,12 @@ A force-restart (watchdog SIGKILL, OOM, reboot) between a turn ending and a
 fire-and-forget `observe()`/`add_memory()` reaching JASWOLF silently loses that
 memory — that is how Alice's "mom eye checkup" was lost on 2026-06-15. The
 journal closes that gap: a write is appended to a local append-only log
-*before* it is sent, and only marked done once JASWOLF confirms it. Anything
+*before* it is sent, and only marked done once JasWolf confirms it. Anything
 still pending is replayed on the next startup.
 
 Append-only by design (no in-place rewrite), so a crash mid-append at worst
 drops the last partial line; earlier entries stay intact. Replays are safe
-because JASWOLF dedups by content hash — a write that landed but died before
+because JasWolf dedups by content hash — a write that landed but died before
 `mark_done` is simply reinforced on replay, never duplicated.
 """
 
@@ -63,12 +63,17 @@ class WriteJournal:
     def pending(self) -> list[dict[str, Any]]:
         """Entries appended but not yet confirmed done, in original order.
         Tolerates a torn final line from a crash mid-append."""
+        with self._lock:
+            return self._pending_locked()
+
+    def _pending_locked(self) -> list[dict[str, Any]]:
+        """Read pending entries. Caller must hold self._lock."""
         if not os.path.exists(self.path):
             return []
         entries: dict[str, dict[str, Any]] = {}
         done: set[str] = set()
         order: list[str] = []
-        with self._lock, open(self.path, encoding="utf-8") as f:
+        with open(self.path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -90,10 +95,15 @@ class WriteJournal:
 
     def compact(self) -> None:
         """Rewrite the log keeping only still-pending entries (call after a
-        successful replay so the file doesn't grow without bound)."""
-        remaining = self.pending()
+        successful replay so the file doesn't grow without bound).
+
+        Read + rewrite happen under one lock hold: releasing between them let
+        a concurrent append() land in the old file and be destroyed by the
+        os.replace — a lost-write race in the component whose whole job is
+        not losing writes."""
         tmp = f"{self.path}.compact-{uuid.uuid4().hex}"
         with self._lock:
+            remaining = self._pending_locked()
             with open(tmp, "w", encoding="utf-8") as f:
                 for rec in remaining:
                     f.write(json.dumps(rec, separators=(",", ":")) + "\n")

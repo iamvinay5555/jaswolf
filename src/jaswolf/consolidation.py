@@ -99,40 +99,57 @@ class ConsolidationEngine:
                 memory_types=[mtype],
                 states=[MemoryState.ACTIVE, MemoryState.WARM, MemoryState.COLD],
             )
-            memories = await self.storage.list_memories(
+            all_memories = await self.storage.list_memories(
                 scope,
                 limit=self.settings.consolidation_max_batch,
                 order_by="created",
                 include_embeddings=True,
             )
-            memories = [m for m in memories if m.embedding]
-            report.examined += len(memories)
-            if len(memories) < 2:
-                continue
-
-            matrix = np.asarray([m.embedding for m in memories], dtype=np.float32)
-            sims = matrix @ matrix.T  # normalized vectors -> cosine
-            uf = _UnionFind(len(memories))
-            pair_sim: dict[tuple[int, int], float] = {}
-            rows, cols = np.where(np.triu(sims, k=1) >= threshold)
-            for i, j in zip(rows.tolist(), cols.tolist()):
-                uf.union(i, j)
-                pair_sim[(i, j)] = float(sims[i, j])
-
-            clusters: dict[int, list[int]] = {}
-            for idx in range(len(memories)):
-                clusters.setdefault(uf.find(idx), []).append(idx)
-
-            for members in clusters.values():
-                if len(members) < 2:
-                    continue
-                report.clusters_found += 1
-                cluster = [memories[i] for i in members]
-                merge = await self._merge_cluster(cluster, pair_sim, members, dry_run)
-                report.merges.append(merge)
-                report.memories_merged += len(merge.merged_ids)
+            all_memories = [m for m in all_memories if m.embedding]
+            report.examined += len(all_memories)
+            # Cluster within a namespace only. With namespace=None the scope
+            # spans ALL namespaces, and a cross-namespace merge would soft-delete
+            # e.g. a `shared` memory into a `default` canonical — silently
+            # removing it from every other profile's view.
+            by_namespace: dict[str, list[Memory]] = {}
+            for m in all_memories:
+                by_namespace.setdefault(m.namespace, []).append(m)
+            for memories in by_namespace.values():
+                await self._consolidate_group(memories, threshold, dry_run, report)
 
         return report
+
+    async def _consolidate_group(
+        self,
+        memories: list[Memory],
+        threshold: float,
+        dry_run: bool,
+        report: ConsolidationReport,
+    ) -> None:
+        if len(memories) < 2:
+            return
+
+        matrix = np.asarray([m.embedding for m in memories], dtype=np.float32)
+        sims = matrix @ matrix.T  # normalized vectors -> cosine
+        uf = _UnionFind(len(memories))
+        pair_sim: dict[tuple[int, int], float] = {}
+        rows, cols = np.where(np.triu(sims, k=1) >= threshold)
+        for i, j in zip(rows.tolist(), cols.tolist()):
+            uf.union(i, j)
+            pair_sim[(i, j)] = float(sims[i, j])
+
+        clusters: dict[int, list[int]] = {}
+        for idx in range(len(memories)):
+            clusters.setdefault(uf.find(idx), []).append(idx)
+
+        for members in clusters.values():
+            if len(members) < 2:
+                continue
+            report.clusters_found += 1
+            cluster = [memories[i] for i in members]
+            merge = await self._merge_cluster(cluster, pair_sim, members, dry_run)
+            report.merges.append(merge)
+            report.memories_merged += len(merge.merged_ids)
 
     async def _merge_cluster(
         self,
@@ -141,7 +158,18 @@ class ConsolidationEngine:
         member_indices: list[int],
         dry_run: bool,
     ) -> ConsolidationMerge:
-        canonical = max(cluster, key=lambda m: (m.importance, m.access_count, m.created_at))
+        # A force-pinned member must win canonical selection: the losers are
+        # soft-deleted, so merging a pinned memory INTO an unpinned canonical
+        # would silently remove it from every future context.
+        canonical = max(
+            cluster,
+            key=lambda m: (
+                bool((m.metadata or {}).get("always_pin")),
+                m.importance,
+                m.access_count,
+                m.created_at,
+            ),
+        )
         others = [m for m in cluster if m.id != canonical.id]
 
         contents = [m.content for m in cluster]
@@ -184,6 +212,20 @@ class ConsolidationEngine:
             sum(m.confidence * (m.access_count + 1) for m in cluster) / total_conf_weight
         )
         canonical.access_count = sum(m.access_count for m in cluster)
+        # Union metadata across the cluster, canonical's values winning
+        # conflicts — a merged-away memory's always_pin / category / provenance
+        # must survive the merge, not vanish with the soft-deleted loser.
+        merged_metadata: dict = {}
+        for member in others:
+            merged_metadata.update(member.metadata or {})
+        merged_metadata.update(canonical.metadata or {})
+        # safety flags are sticky: pinned-if-any-was-pinned, never unpinned by a merge
+        if any((m.metadata or {}).get("always_pin") for m in cluster):
+            merged_metadata["always_pin"] = True
+        merged_metadata["merged_ids"] = sorted(
+            set(merged_metadata.get("merged_ids", [])) | set(merge.merged_ids)
+        )
+        canonical.metadata = merged_metadata
         canonical.updated_at = utcnow()
         await self.storage.upsert(canonical)
 

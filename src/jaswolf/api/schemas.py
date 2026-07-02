@@ -106,6 +106,7 @@ class ScoredMemoryOut(BaseModel):
     recency: float
     frequency: float
     final_score: float
+    keyword_match: bool
 
     @classmethod
     def from_scored(cls, scored: ScoredMemory, include_embedding: bool = False) -> "ScoredMemoryOut":
@@ -115,6 +116,7 @@ class ScoredMemoryOut(BaseModel):
             recency=round(scored.recency, 4),
             frequency=round(scored.frequency, 4),
             final_score=round(scored.final_score, 4),
+            keyword_match=scored.keyword_match,
         )
 
 

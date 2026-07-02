@@ -5,7 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from jaswolf.evals import load_probes, run_eval
+from jaswolf.evals import _is_force_pinned, load_probes, run_eval
 from jaswolf.models import MemoryCreate, MemoryType, SearchQuery
 
 
@@ -62,6 +62,42 @@ async def test_search_hits_carry_raw_similarity(service):
     for h in hits:
         if h.similarity is not None:
             assert -1.0 <= h.similarity <= 1.0
+
+
+# ---- pin-detection (2026-06-26: off-topic injection count must track real
+# ---- pinning, not memory_type — a preference/goal that isn't always_pin and
+# ---- is below the importance floor must NOT be exempted from the count) --------
+
+
+async def test_is_force_pinned_tracks_real_pin_not_type(settings, service):
+    unpinned_preference, _ = await service.add(MemoryCreate(
+        user_id="alice",
+        content="Alice's commute route",
+        memory_type=MemoryType.PREFERENCE,
+        importance=0.6,
+        confidence=0.95,
+    ))
+    assert _is_force_pinned(unpinned_preference, settings) is False
+
+    pinned_goal, _ = await service.add(MemoryCreate(
+        user_id="alice",
+        content="Critical identity fact",
+        memory_type=MemoryType.GOAL,
+        importance=0.5,
+        confidence=0.95,
+        metadata={"always_pin": True},
+    ))
+    assert _is_force_pinned(pinned_goal, settings) is True
+
+    high_importance_episodic, _ = await service.add(MemoryCreate(
+        user_id="alice",
+        content="High importance but not preference/goal typed",
+        memory_type=MemoryType.EPISODIC,
+        importance=0.95,
+        confidence=0.95,
+    ))
+    settings.context_pin_requires_always_pin = False
+    assert _is_force_pinned(high_importance_episodic, settings) is True
 
 
 # ---- probe loading ---------------------------------------------------------------
