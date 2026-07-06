@@ -66,17 +66,29 @@ class ContextBuilder:
         self.retrieval = retrieval
         self.settings = settings
         self.last_latency_ms: float = 0.0
-        self._bg_matrix: np.ndarray | None = None  # cached corpus background sample
+        # cached corpus background samples for noise calibration, keyed per
+        # scope: one user's gate must be calibrated on THEIR corpus, not
+        # whichever user happened to query first after startup
+        self._bg_cache: dict[tuple, np.ndarray] = {}
 
     async def _background(self, scope: QueryScope) -> np.ndarray | None:
         """Cached sample of corpus embeddings for noise calibration. Staleness
-        is fine — it estimates a distribution, not a fact."""
-        if self._bg_matrix is None:
+        is fine — it estimates a distribution, not a fact. Keyed by
+        (tenant, user, namespaces): a single shared matrix meant every user
+        after the first was gated against the first user's corpus."""
+        key = (
+            scope.tenant_id,
+            scope.user_id,
+            tuple(scope.namespaces) if scope.namespaces else (scope.namespace,),
+        )
+        matrix = self._bg_cache.get(key)
+        if matrix is None:
             vecs = await self.storage.sample_embeddings(
                 scope, self.settings.context_background_sample
             )
-            self._bg_matrix = np.asarray(vecs, dtype=np.float32) if vecs else np.empty((0, 0))
-        return self._bg_matrix if self._bg_matrix.size else None
+            matrix = np.asarray(vecs, dtype=np.float32) if vecs else np.empty((0, 0))
+            self._bg_cache[key] = matrix
+        return matrix if matrix.size else None
 
     async def similarity_gate(self, query_vec: list[float], scope: QueryScope) -> float:
         """Raw-cosine threshold a non-pinned candidate must clear to be injected.

@@ -116,3 +116,31 @@ async def test_noise_z_zero_disables_gate(service, monkeypatch):
         ContextRequest(user_id="alice", query="anything at all")
     )
     assert any("borderline" in m.memory.content for m in result.memories)
+
+
+async def test_background_calibration_is_per_user_scope(service):
+    """Regression (2026-07-02): the calibration background sample was cached
+    once globally, so every user after the first was gated against the FIRST
+    user's corpus. With per-scope keying, each user's scope gets its own
+    background sample."""
+    from jaswolf.storage.base import QueryScope
+
+    for i in range(30):
+        await service.add(MemoryCreate(
+            user_id="alice", content=f"alice fact number {i} about gardening and recipes"
+        ))
+    for i in range(30):
+        await service.add(MemoryCreate(
+            user_id="bob", content=f"bob fact number {i} about motorcycles and welding"
+        ))
+
+    builder = service.context
+    scope_a = QueryScope(tenant_id="default", user_id="alice", namespace="default")
+    scope_b = QueryScope(tenant_id="default", user_id="bob", namespace="default")
+    bg_a = await builder._background(scope_a)
+    bg_b = await builder._background(scope_b)
+    assert bg_a is not None and bg_b is not None
+    # distinct cache entries, calibrated on distinct corpora
+    assert len(builder._bg_cache) == 2
+    assert bg_a.shape[0] == 30 and bg_b.shape[0] == 30
+    assert not (bg_a[0] == bg_b[0]).all()
