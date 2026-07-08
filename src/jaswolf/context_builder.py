@@ -35,12 +35,18 @@ logger = logging.getLogger("jaswolf.context")
 _SECTION_ORDER: list[tuple[MemoryType, str]] = [
     (MemoryType.PREFERENCE, "Preferences"),
     (MemoryType.GOAL, "Goals"),
+    (MemoryType.TASTE, "Taste"),
     (MemoryType.RELATIONSHIP, "Relationships"),
     (MemoryType.SEMANTIC, "Facts"),
     (MemoryType.PROCEDURAL, "Procedures"),
     (MemoryType.EPISODIC, "Recent context"),
     (MemoryType.WORKING, "Active session notes"),
 ]
+
+# Types excluded from the generic query-driven candidate pool. WORKING is
+# session-gated below; TASTE enters ONLY through the task_type lane — a taste
+# rule must never ride into context on incidental vector similarity.
+_QUERY_EXCLUDED_TYPES = (MemoryType.WORKING, MemoryType.TASTE)
 
 _QUERY_MESSAGE_WINDOW = 4
 _MIN_TRUNCATED_TOKENS = 30
@@ -136,7 +142,7 @@ class ContextBuilder:
     async def _gather(
         self, request: ContextRequest, query_text: str, tenant_id: str
     ) -> list[ScoredMemory]:
-        types = [t for t, _ in _SECTION_ORDER if t != MemoryType.WORKING]
+        types = [t for t, _ in _SECTION_ORDER if t not in _QUERY_EXCLUDED_TYPES]
         if request.session_id:
             types.append(MemoryType.WORKING)
 
@@ -254,6 +260,37 @@ class ContextBuilder:
                 if memory.id not in by_id:
                     by_id[memory.id] = score_memory(memory, relevance=0.6, settings=self.settings)
 
+        # Taste lane: judgment/steering rules for the declared kind of work.
+        # Exact-match on the closed task-type vocabulary (models.TASTE_TASK_TYPES)
+        # — no semantic matching, so a taste rule can never leak into unrelated
+        # work the way a vector hit can. No task_type declared -> no taste,
+        # ever. Ranked by importance (list order), anti-patterns sorted first
+        # at assembly because negative rules generalize best.
+        if request.task_type:
+            taste_scope = QueryScope(
+                tenant_id=tenant_id,
+                user_id=request.user_id,
+                namespace=request.namespace,
+                namespaces=read_namespaces,
+                memory_types=[MemoryType.TASTE],
+            )
+            candidates_taste = await self.storage.list_memories(
+                taste_scope,
+                limit=self.settings.context_max_taste * 4,
+                order_by="importance",
+                include_embeddings=True,
+            )
+            added = 0
+            for memory in candidates_taste:
+                if added >= self.settings.context_max_taste:
+                    break
+                apply_to = (memory.metadata or {}).get("where_to_apply") or []
+                if request.task_type not in apply_to:
+                    continue
+                if memory.id not in by_id:
+                    by_id[memory.id] = score_memory(memory, relevance=0.5, settings=self.settings)
+                    added += 1
+
         # Provenance guard: staging/test memories must never reach a live prompt,
         # however they were typed (the 2026-06-15 incident was a STAGING_TEST_
         # preference pinned into every context).
@@ -305,6 +342,16 @@ class ContextBuilder:
             grouped.setdefault(scored.memory.memory_type, []).append(scored)
         for members in grouped.values():
             members.sort(key=lambda s: s.final_score, reverse=True)
+        if MemoryType.TASTE in grouped:
+            # anti-pattern rules first: "what not to do" generalizes better
+            # than positive examples and must survive budget truncation
+            grouped[MemoryType.TASTE].sort(
+                key=lambda s: (
+                    bool((s.memory.metadata or {}).get("anti_pattern")),
+                    s.final_score,
+                ),
+                reverse=True,
+            )
 
         shares = self.settings.context_shares()
         shares["working"] = 0.10
@@ -380,6 +427,10 @@ class ContextBuilder:
         line = memory.content.strip()
         if memory.memory_type == MemoryType.EPISODIC:
             line = f"[{memory.created_at.date().isoformat()}] {line}"
+        if memory.memory_type == MemoryType.TASTE and (memory.metadata or {}).get(
+            "anti_pattern"
+        ):
+            line = f"AVOID: {line}"
         if include_ids:
             line += f" (mem:{memory.id[:8]})"
         return line

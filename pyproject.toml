@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jaswolf"
-version = "0.1.3"
+version = "0.2.0"
 description = "JasWolf — self-hosted long-term memory for AI agents. Built for companionship."
 readme = "README.md"
 license = { text = "MIT" }

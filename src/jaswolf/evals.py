@@ -46,6 +46,7 @@ from .storage.base import QueryScope
 _PROBE_FIELDS = {
     "id", "kind", "query", "expect_any", "expect_all", "forbid",
     "top_k", "high_salience", "off_topic", "max_similarity",
+    "task_type",  # context probes: exercise the task-aware taste lane
 }
 
 
@@ -125,6 +126,7 @@ async def _run_probe(
         result = await service.build_context(ContextRequest(
             user_id=user_id, query=probe["query"],
             namespace=namespace, shared_namespace=shared_namespace,
+            task_type=probe.get("task_type"),
         ))
         latency_ms = (time.perf_counter() - start) * 1000
         texts = [result.text]

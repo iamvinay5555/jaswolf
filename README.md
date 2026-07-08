@@ -144,6 +144,7 @@ jaswolf serve --host 127.0.0.1 --port 8400
 | `episodic` | Past events | "Had a meeting about Project X on Monday" |
 | `relationship` | People connections | "Alice is Bob's manager" |
 | `procedural` | Workflows | "Deploy process: build → push → compose up" |
+| `taste` | Judgment/steering rules | "Good demos show workflow, not just output" — explicit-capture-only, task-scoped ([docs](docs/TASTE.md)) |
 
 ### Embedding Models
 
@@ -187,6 +188,7 @@ Pinned facts in `shared` are visible to every agent. Agent-specific facts stay i
 |---|---|
 | [Installation](docs/INSTALL.md) | Full setup guide (SQLite, PostgreSQL, Docker) |
 | [API Reference](docs/API_REFERENCE.md) | Complete REST API docs |
+| [Taste Index](docs/TASTE.md) | Judgment memory: explicit capture, task-aware retrieval, anti-patterns |
 | [Implementation Guide](docs/IMPLEMENTATION_GUIDE.md) | Deep architecture walkthrough |
 | [Operations](docs/OPERATIONS.md) | Monitoring, metrics, production tuning |
 | [Best Practices](docs/BEST_PRACTICES.md) | Tuning guidance, retrieval quality |

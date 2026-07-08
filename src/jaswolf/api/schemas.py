@@ -137,6 +137,8 @@ class ContextIn(BaseModel):
     token_budget: int | None = Field(default=None, ge=50, le=32_000)
     format: str = "markdown"
     include_ids: bool = False
+    # declared kind of work; enables the Taste section (models.TASTE_TASK_TYPES)
+    task_type: str | None = None
 
 
 class ContextResponse(BaseModel):

@@ -1,4 +1,4 @@
-"""Core domain models for JASWOLF.
+"""Core domain models for JasWolf.
 
 Everything that moves between subsystems is one of these types. Storage
 backends translate them to rows; the API layer translates them to JSON.
@@ -38,6 +38,20 @@ class MemoryType(str, Enum):
     PROCEDURAL = "procedural"    # learned workflows and how-tos
     GOAL = "goal"                # active objectives
     RELATIONSHIP = "relationship"  # people/org relationships
+    TASTE = "taste"              # judgment/steering rules: what good looks like,
+    #                              what to avoid, where it should shape future work.
+    #                              Explicit-signal-only: never passively extracted,
+    #                              never auto-consolidated or superseded, injected
+    #                              into context only for a declared task_type.
+
+
+# The closed vocabulary shared by taste capture (metadata.where_to_apply) and
+# task-aware retrieval (ContextRequest.task_type). Exact-match on purpose:
+# free-text apply-scopes matched semantically would reintroduce the embedding
+# calibration problem inside the taste lane.
+TASTE_TASK_TYPES = frozenset(
+    {"writing", "product", "design", "research", "architecture", "agent_behavior"}
+)
 
 
 class MemoryState(str, Enum):
@@ -181,6 +195,18 @@ class ContextRequest(BaseModel):
     token_budget: int | None = None
     format: str = "markdown"  # "markdown" | "xml"
     include_ids: bool = False
+    # declared kind of work the agent is about to do; when set, active taste
+    # memories whose where_to_apply includes it are injected as a Taste section
+    task_type: str | None = None
+
+    @field_validator("task_type")
+    @classmethod
+    def _known_task_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in TASTE_TASK_TYPES:
+            raise ValueError(
+                f"unknown task_type {v!r}; expected one of {sorted(TASTE_TASK_TYPES)}"
+            )
+        return v
 
 
 class ContextSection(BaseModel):

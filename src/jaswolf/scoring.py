@@ -25,6 +25,7 @@ TYPE_BASE_IMPORTANCE: dict[MemoryType, float] = {
     MemoryType.PROCEDURAL: 0.60,
     MemoryType.EPISODIC: 0.40,
     MemoryType.WORKING: 0.30,
+    MemoryType.TASTE: 0.65,
 }
 
 _EMPHASIS = re.compile(

@@ -29,7 +29,10 @@ from .storage.base import QueryScope, StorageBackend
 logger = logging.getLogger("jaswolf.consolidation")
 
 # Working memories are transient; consolidating them is wasted effort.
-_CONSOLIDATABLE = [t for t in MemoryType if t != MemoryType.WORKING]
+# Taste memories are explicit judgment rules: sentence-union merging two
+# distinct steering rules can garble both, so they evolve only by explicit
+# update/archive, never by automated merge.
+_CONSOLIDATABLE = [t for t in MemoryType if t not in (MemoryType.WORKING, MemoryType.TASTE)]
 
 
 class _UnionFind:

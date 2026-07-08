@@ -48,7 +48,10 @@ async def create_memory(
     tenant: str = Depends(authenticate),
     service: MemoryService = Depends(get_service),
 ):
-    memory, created = await service.add(MemoryCreate(**body.model_dump()), tenant_id=tenant)
+    try:
+        memory, created = await service.add(MemoryCreate(**body.model_dump()), tenant_id=tenant)
+    except ValueError as exc:  # e.g. taste capture missing explicit_signal/why_useful
+        raise HTTPException(status_code=422, detail=str(exc))
     if created:
         metrics.MEMORIES_CREATED.labels(memory_type=memory.memory_type.value).inc()
     else:
@@ -125,6 +128,8 @@ async def update_memory(
         )
     except MemoryNotFound:
         raise HTTPException(status_code=404, detail="memory not found")
+    except ValueError as exc:  # e.g. a PATCH that would hollow out a taste memory
+        raise HTTPException(status_code=422, detail=str(exc))
     return MemoryOut.from_memory(memory)
 
 
@@ -165,7 +170,11 @@ async def build_context(
     tenant: str = Depends(authenticate),
     service: MemoryService = Depends(get_service),
 ):
-    result = await service.build_context(ContextRequest(**body.model_dump()), tenant_id=tenant)
+    try:
+        context_request = ContextRequest(**body.model_dump())
+    except ValueError as exc:  # e.g. unknown task_type
+        raise HTTPException(status_code=422, detail=str(exc))
+    result = await service.build_context(context_request, tenant_id=tenant)
     latency = service.context.last_latency_ms
     metrics.CONTEXT_LATENCY.observe(latency / 1000)
     return ContextResponse(

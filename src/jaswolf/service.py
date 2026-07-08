@@ -54,12 +54,51 @@ _CORRECTION = re.compile(
 # "User's <slot> is <value>" — same slot + different value = direct conflict
 _SLOT = re.compile(r"^user'?s?\s+(.{2,40}?)\s+is\s+(.+)$", re.IGNORECASE)
 
+# TASTE is deliberately absent: judgment rules must never be silently
+# archived because a correction-shaped sentence resembled one.
 _SUPERSEDABLE = (
     MemoryType.SEMANTIC,
     MemoryType.PREFERENCE,
     MemoryType.GOAL,
     MemoryType.RELATIONSHIP,
 )
+
+
+def _validated_taste_metadata(metadata: dict | None) -> dict:
+    """Taste is explicit-signal-only and must preserve the judgment, not just
+    the artifact. Enforced at the engine — on CREATE and on every UPDATE that
+    leaves a memory typed taste — so no client mutation can produce a hollow
+    entry. Returns the metadata with where_to_apply normalized (list,
+    deduped, stable sorted order). The conversational 'why should this go in
+    your Taste Index?' prompt lives in the agent layer above."""
+    from .models import TASTE_TASK_TYPES
+
+    md = metadata or {}
+    if not md.get("explicit_signal"):
+        raise ValueError(
+            "taste memories require metadata.explicit_signal=true — "
+            "taste is never captured passively"
+        )
+    if not str(md.get("why_useful", "")).strip():
+        raise ValueError(
+            "taste memories require a non-empty metadata.why_useful — "
+            "the judgment is the asset, not the artifact"
+        )
+    apply_to = md.get("where_to_apply")
+    if isinstance(apply_to, str):
+        apply_to = [apply_to]
+    if not apply_to or not isinstance(apply_to, list):
+        raise ValueError(
+            "taste memories require metadata.where_to_apply — a list of task "
+            f"types from {sorted(TASTE_TASK_TYPES)}"
+        )
+    unknown = [t for t in apply_to if t not in TASTE_TASK_TYPES]
+    if unknown:
+        raise ValueError(
+            f"unknown where_to_apply task type(s) {unknown}; "
+            f"expected values from {sorted(TASTE_TASK_TYPES)}"
+        )
+    return {**md, "where_to_apply": sorted(set(apply_to))}
 
 
 def _slot_of(content: str) -> tuple[str, str] | None:
@@ -189,6 +228,8 @@ class MemoryService:
         text = payload.content.strip()
         if not text:
             raise ValueError("memory content is empty")
+        if payload.memory_type == MemoryType.TASTE:
+            payload.metadata = _validated_taste_metadata(payload.metadata)
         digest = content_hash(text)
 
         exact = await self.storage.get_by_hash(tenant_id, payload.user_id, payload.namespace, digest)
@@ -383,6 +424,11 @@ class MemoryService:
             memory.metadata = patch.metadata
         if patch.expires_at is not None:
             memory.expires_at = patch.expires_at
+        # taste invariants hold across mutation, not just creation: a PATCH
+        # that clears why_useful, corrupts where_to_apply, or retypes a memory
+        # into taste must fail loudly — never leave a hollow steering rule
+        if memory.memory_type == MemoryType.TASTE:
+            memory.metadata = _validated_taste_metadata(memory.metadata)
         memory.updated_at = utcnow()
         await self.storage.upsert(memory)
         return memory

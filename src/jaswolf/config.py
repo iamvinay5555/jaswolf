@@ -111,6 +111,10 @@ class JaswolfSettings(BaseSettings):
     context_share_procedural: float = 0.15
     context_share_episodic: float = 0.15
     context_share_relationship: float = 0.10
+    # taste lane: only participates when the caller declares a task_type, so
+    # this share is idle on ordinary queries. Small and sharp by design.
+    context_share_taste: float = 0.12
+    context_max_taste: int = 6  # cap on taste entries fetched per task_type
 
     # --- extraction ---
     extraction_strategy: str = "rules"  # rules | llm | hybrid
@@ -159,4 +163,5 @@ class JaswolfSettings(BaseSettings):
             "procedural": self.context_share_procedural,
             "episodic": self.context_share_episodic,
             "relationship": self.context_share_relationship,
+            "taste": self.context_share_taste,
         }

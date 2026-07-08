@@ -198,3 +198,44 @@ async def test_rate_limit(settings, tmp_path):
     await service.close()
     assert statuses[:3] == [200, 200, 200]
     assert 429 in statuses[3:]
+
+
+async def test_taste_capture_and_task_context_over_rest(client):
+    # hollow taste capture -> 422 with a reason, not a 500
+    bad = await client.post("/v1/memories", json={
+        "user_id": "alice", "content": "good demos show workflow",
+        "memory_type": "taste",
+    })
+    assert bad.status_code == 422
+    assert "explicit_signal" in bad.json()["detail"]
+
+    good = await client.post("/v1/memories", json={
+        "user_id": "alice",
+        "content": "Good product demos show the workflow, not just the output",
+        "memory_type": "taste",
+        "importance": 0.85,
+        "metadata": {
+            "explicit_signal": True,
+            "why_useful": "keeps demo ideas concrete",
+            "where_to_apply": ["product"],
+        },
+    })
+    assert good.status_code == 201
+
+    # unknown task_type -> 422
+    bad_ctx = await client.post("/v1/memories/context", json={
+        "user_id": "alice", "query": "ideas", "task_type": "cooking",
+    })
+    assert bad_ctx.status_code == 422
+
+    with_task = await client.post("/v1/memories/context", json={
+        "user_id": "alice", "query": "brainstorm demo ideas", "task_type": "product",
+    })
+    assert with_task.status_code == 200
+    assert "workflow" in with_task.json()["text"]
+
+    without_task = await client.post("/v1/memories/context", json={
+        "user_id": "alice", "query": "brainstorm demo ideas",
+    })
+    assert without_task.status_code == 200
+    assert "workflow" not in without_task.json()["text"]
