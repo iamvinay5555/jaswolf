@@ -19,8 +19,15 @@ from typing import Any
 
 import numpy as np
 
-from ..keywords import discriminative_tokens
-from ..models import Memory, MemoryState, MemoryType, SweepReport, utcnow
+from ..keywords import candidate_tokens, discriminative_tokens
+from ..models import (
+    ConversationMessage,
+    Memory,
+    MemoryState,
+    MemoryType,
+    SweepReport,
+    utcnow,
+)
 from .base import LifecycleCutoffs, QueryScope
 
 logger = logging.getLogger("jaswolf.storage.sqlite")
@@ -93,6 +100,21 @@ CREATE TABLE IF NOT EXISTS jaswolf_meta (
     value TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    user_id TEXT NOT NULL,
+    agent_id TEXT,
+    session_id TEXT,
+    namespace TEXT NOT NULL DEFAULT 'default',
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conv_scope
+    ON conversation_messages (tenant_id, user_id, namespace, created_at);
+CREATE INDEX IF NOT EXISTS idx_conv_session ON conversation_messages (session_id);
 """
 
 _FTS_SCHEMA = """
@@ -108,6 +130,16 @@ END;
 CREATE TRIGGER IF NOT EXISTS memories_fts_au AFTER UPDATE OF content ON memories BEGIN
     INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
     INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+    content, content='conversation_messages', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS conversations_fts_ai AFTER INSERT ON conversation_messages BEGIN
+    INSERT INTO conversations_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS conversations_fts_ad AFTER DELETE ON conversation_messages BEGIN
+    INSERT INTO conversations_fts(conversations_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
 END;
 """
 
@@ -622,6 +654,184 @@ class SQLiteStore:
                 (from_id, to_id, relation, utcnow().timestamp()),
             )
             self._conn.commit()
+
+    async def get_relationships(self, memory_id: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._sync_get_relationships, memory_id)
+
+    def _sync_get_relationships(self, memory_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                """SELECT from_id, to_id, relation, created_at FROM memory_relationships
+                WHERE from_id = ? OR to_id = ? ORDER BY created_at""",
+                (memory_id, memory_id),
+            ).fetchall()
+        out = []
+        for r in rows:
+            outgoing = r["from_id"] == memory_id
+            out.append(
+                {
+                    "relation": r["relation"],
+                    "direction": "outgoing" if outgoing else "incoming",
+                    "other_id": r["to_id"] if outgoing else r["from_id"],
+                    "created_at": _from_epoch(r["created_at"]).isoformat(),
+                }
+            )
+        return out
+
+    # -- L0 conversation archive ----------------------------------------------
+
+    @staticmethod
+    def _row_to_conversation(row: sqlite3.Row) -> ConversationMessage:
+        return ConversationMessage(
+            id=row["id"],
+            tenant_id=row["tenant_id"],
+            user_id=row["user_id"],
+            agent_id=row["agent_id"],
+            session_id=row["session_id"],
+            namespace=row["namespace"],
+            role=row["role"],
+            content=row["content"],
+            created_at=_from_epoch(row["created_at"]),
+        )
+
+    async def add_conversation_messages(self, messages: list[ConversationMessage]) -> None:
+        if not messages:
+            return
+        await asyncio.to_thread(self._sync_add_conversation_messages, messages)
+
+    def _sync_add_conversation_messages(self, messages: list[ConversationMessage]) -> None:
+        with self._lock:
+            assert self._conn is not None
+            self._conn.executemany(
+                """INSERT OR IGNORE INTO conversation_messages
+                (id, tenant_id, user_id, agent_id, session_id, namespace, role, content, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                [
+                    (
+                        m.id, m.tenant_id, m.user_id, m.agent_id, m.session_id,
+                        m.namespace, m.role, m.content, _to_epoch(m.created_at),
+                    )
+                    for m in messages
+                ],
+            )
+            self._conn.commit()
+
+    async def get_conversation_messages(
+        self, ids: list[str], tenant_id: str
+    ) -> list[ConversationMessage]:
+        if not ids:
+            return []
+        return await asyncio.to_thread(self._sync_get_conversation_messages, ids, tenant_id)
+
+    def _sync_get_conversation_messages(
+        self, ids: list[str], tenant_id: str
+    ) -> list[ConversationMessage]:
+        placeholders = ",".join("?" * len(ids))
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                f"""SELECT * FROM conversation_messages
+                WHERE id IN ({placeholders}) AND tenant_id = ? ORDER BY created_at""",
+                (*ids, tenant_id),
+            ).fetchall()
+        return [self._row_to_conversation(r) for r in rows]
+
+    async def search_conversations(
+        self,
+        scope: QueryScope,
+        query: str,
+        k: int,
+        since: datetime | None = None,
+    ) -> list[tuple[ConversationMessage, float]]:
+        return await asyncio.to_thread(self._sync_search_conversations, scope, query, k, since)
+
+    def _conv_scope_where(self, scope: QueryScope) -> tuple[str, list[Any]]:
+        """Conversation rows carry no state/type/importance — scope on the
+        identity axes only. tenant_id is still the hard isolation boundary."""
+        clauses = ["tenant_id = ?"]
+        params: list[Any] = [scope.tenant_id]
+        if scope.user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(scope.user_id)
+        if scope.agent_id is not None:
+            clauses.append("agent_id = ?")
+            params.append(scope.agent_id)
+        if scope.session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(scope.session_id)
+        if scope.namespaces:
+            placeholders = ",".join("?" * len(scope.namespaces))
+            clauses.append(f"namespace IN ({placeholders})")
+            params.extend(scope.namespaces)
+        elif scope.namespace is not None:
+            clauses.append("namespace = ?")
+            params.append(scope.namespace)
+        return " AND ".join(clauses), params
+
+    def _sync_search_conversations(
+        self, scope: QueryScope, query: str, k: int, since: datetime | None
+    ) -> list[tuple[ConversationMessage, float]]:
+        where, params = self._conv_scope_where(scope)
+        if since is not None:
+            where += " AND created_at >= ?"
+            params.append(since.timestamp())
+        # transcripts are searched deliberately by an agent, so recall beats
+        # precision here: cheap stopword/length filter only, no corpus-DF gate
+        tokens = candidate_tokens(query, min_len=self.keyword_min_len)
+        with self._lock:
+            assert self._conn is not None
+            if not tokens:
+                # no usable tokens -> most recent turns in scope (browse mode)
+                rows = self._conn.execute(
+                    f"""SELECT * FROM conversation_messages WHERE {where}
+                    ORDER BY created_at DESC LIMIT ?""",
+                    (*params, k),
+                ).fetchall()
+                n = len(rows)
+                return [
+                    (self._row_to_conversation(r), 1.0 - (i / max(1, n)))
+                    for i, r in enumerate(rows)
+                ]
+            if self._fts:
+                match_expr = " OR ".join(f'"{t}"' for t in tokens)
+                rows = self._conn.execute(
+                    f"""SELECT conversation_messages.*, bm25(conversations_fts) AS rank
+                    FROM conversations_fts
+                    JOIN conversation_messages ON conversation_messages.rowid = conversations_fts.rowid
+                    WHERE conversations_fts MATCH ? AND {where}
+                    ORDER BY rank ASC LIMIT ?""",
+                    (match_expr, *params, k),
+                ).fetchall()
+            else:
+                hits_expr = " + ".join(
+                    "(CASE WHEN content LIKE ? THEN 1 ELSE 0 END)" for _ in tokens
+                )
+                like_params = [f"%{t}%" for t in tokens]
+                rows = self._conn.execute(
+                    f"""SELECT *, ({hits_expr}) AS hits FROM conversation_messages
+                    WHERE {where} AND ({hits_expr}) > 0
+                    ORDER BY hits DESC, created_at DESC LIMIT ?""",
+                    (*like_params, *params, *like_params, k),
+                ).fetchall()
+        n = len(rows)
+        return [
+            (self._row_to_conversation(r), 1.0 - (i / max(1, n)))
+            for i, r in enumerate(rows)
+        ]
+
+    async def prune_conversations(self, before: datetime) -> int:
+        return await asyncio.to_thread(self._sync_prune_conversations, before)
+
+    def _sync_prune_conversations(self, before: datetime) -> int:
+        with self._lock:
+            assert self._conn is not None
+            cur = self._conn.execute(
+                "DELETE FROM conversation_messages WHERE created_at < ?",
+                (before.timestamp(),),
+            )
+            self._conn.commit()
+            return cur.rowcount
 
     # -- lifecycle sweep -------------------------------------------------------
 

@@ -47,6 +47,8 @@ JasWolf solves this — it's a **lightweight, self-hosted memory engine** that r
 | Write-ahead journal (crash-proof) | ✅ | ❌ | ❌ |
 | Corpus-calibrated context gate | ✅ | ❌ | ❌ |
 | Memory supersession (auto-merge) | ✅ | ✅ | Varies |
+| Full provenance (memory → source turns) | ✅ | ❌ | ❌ |
+| Compiled persona (deterministic, traced) | ✅ | LLM-generated | Varies |
 | 15× faster than cloud alternatives | ✅ | ~1s | Varies |
 | Open-source (MIT) | ✅ | ❌ | Varies |
 
@@ -180,6 +182,35 @@ memory_b = JaswolfMemoryProvider.remote(
 
 Pinned facts in `shared` are visible to every agent. Agent-specific facts stay isolated.
 
+### Semantic Pyramid (v0.3.0)
+
+Memories shouldn't be a flat pile — and they shouldn't lie. JasWolf layers
+structure over the atom store:
+
+```
+L3  persona          ← compiled "who is this user" doc, source id on every line
+L1  typed memories   ← the existing extraction/reinforcement engine
+L0  conversations    ← raw turns (opt-in), searchable, immutable
+```
+
+- **L0 archive** (`JASWOLF_CONVERSATION_CAPTURE=true`): raw turns are stored
+  before extraction, full-text searchable via `search_conversations` —
+  "what did we discuss last Tuesday?" works even when extraction missed it.
+- **Provenance**: every extracted memory records its source turns;
+  `explain(memory_id)` walks memory → versions → graph edges → the exact
+  turns it came from. Debugging recall becomes a deterministic walk, not
+  vector-score archaeology.
+- **Compiled persona**: `jaswolf persona --user-id alice --out persona.md`
+  renders an at-a-glance profile from identity-grade memories only. It is a
+  deterministic *view* — it can never claim something the memory layer
+  doesn't back, unlike LLM-generated personas that hallucinate narrative.
+- **Observe cadence**: optional batched extraction with a warm-up ramp
+  (1→2→4→…→N) and idle flush, journal-backed so a crash replays instead of
+  forgets.
+
+See [docs/SEMANTIC_PYRAMID.md](docs/SEMANTIC_PYRAMID.md) for the design
+rationale and what we deliberately did NOT build.
+
 ---
 
 ## Documentation
@@ -189,6 +220,7 @@ Pinned facts in `shared` are visible to every agent. Agent-specific facts stay i
 | [Installation](docs/INSTALL.md) | Full setup guide (SQLite, PostgreSQL, Docker) |
 | [API Reference](docs/API_REFERENCE.md) | Complete REST API docs |
 | [Taste Index](docs/TASTE.md) | Judgment memory: explicit capture, task-aware retrieval, anti-patterns |
+| [Semantic Pyramid](docs/SEMANTIC_PYRAMID.md) | L0 conversation archive, provenance/explain, compiled persona |
 | [Implementation Guide](docs/IMPLEMENTATION_GUIDE.md) | Deep architecture walkthrough |
 | [Operations](docs/OPERATIONS.md) | Monitoring, metrics, production tuning |
 | [Best Practices](docs/BEST_PRACTICES.md) | Tuning guidance, retrieval quality |

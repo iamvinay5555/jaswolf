@@ -115,6 +115,35 @@ absolute similarity).
 
 `200` → `{"examined": 132, "clusters_found": 3, "memories_merged": 4, "merges": [...], "dry_run": true}`
 
+## GET /v1/memories/{id}/explain — provenance drill-down (v0.3.0)
+
+Returns the memory, its version history, its graph edges (both directions,
+with the other memory's content), and — when conversation capture is on —
+the raw turns it was extracted from.
+
+`200` → `{"memory": {...}, "versions": [...], "relationships": [{"relation": "supersedes", "direction": "outgoing", "other_id": "...", "other_content": "..."}], "sources": [{"role": "user", "content": "...", ...}]}`
+
+## POST /v1/conversations/search — search the L0 archive (v0.3.0)
+
+```json
+{"user_id": "alice", "query": "Hakone ryokan", "top_k": 10, "since_days": 30}
+```
+
+Optional: `namespace`, `namespaces`, `session_id`. Empty query returns the
+most recent turns in scope. Requires `JASWOLF_CONVERSATION_CAPTURE=true` (an
+empty archive returns `{"results": [], "count": 0}`).
+
+## POST /v1/persona — compile the L3 persona document (v0.3.0)
+
+```json
+{"user_id": "alice", "namespaces": ["jasmine", "shared"], "token_budget": 400}
+```
+
+`200` → `{"text": "# Persona: alice\n…", "memory_ids": [...], "token_estimate": 312, "compiled_at": "..."}`
+
+Deterministic view over identity-grade memories (confidence ≥ pin gate);
+every line carries its source memory id unless `include_ids=false`.
+
 ## POST /v1/maintenance/sweep — run one lifecycle sweep
 ## GET /v1/stats — counts by state/type (`?user_id=` to narrow)
 ## GET /health — engine health (no auth)

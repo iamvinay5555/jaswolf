@@ -61,6 +61,9 @@ short:
 | `remember(content, memory_type?, importance?)` | explicit durable store | model-driven |
 | `search_memory(query, top_k?, mode?)` | scored search | model-driven |
 | `forget(memory_id, hard?)` | delete | model-driven |
+| `search_conversations(query, limit?, since_days?)` | FTS over raw past turns (L0 archive, v0.3.0) | model-driven |
+| `explain_memory(memory_id)` | provenance drill-down: versions, edges, source turns (v0.3.0) | model-driven |
+| `get_persona()` | compiled identity dossier with source ids (v0.3.0) | model-driven |
 | `memory_health()` | provider/fingerprint/fallback/status | ops |
 
 The surface supports both styles on purpose (see below).

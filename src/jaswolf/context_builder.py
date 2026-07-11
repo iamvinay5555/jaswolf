@@ -202,29 +202,45 @@ class ContextBuilder:
                     "context gate dropped %d candidates below %.3f", len(dropped), gate
                 )
 
-        # Force-pinned tier: only IDENTITY/SAFETY-grade preferences/goals belong
-        # in EVERY context regardless of query — those explicitly marked
-        # metadata.always_pin, OR at/above context_always_pin_importance — both
-        # still clearing the confidence gate, capped by context_max_pins.
-        # Lower-importance, unmarked preferences are NOT force-injected; they
-        # appear only when the query-driven search above surfaced them. This
-        # stops a stray/staging preference from dominating every turn
-        # (2026-06-15 incident) while keeping true guardrails always present.
+        # Force-pinned tier: IDENTITY/SAFETY-grade memories belong in EVERY
+        # context regardless of query. Eligibility, by type:
+        #   - preference/goal: marked metadata.always_pin OR (non-strict only)
+        #     at/above context_always_pin_importance. The importance floor stays
+        #     pref/goal-only — high importance alone never pins other types.
+        #   - any other durable type (relationship, semantic, episodic,
+        #     procedural): the explicit metadata.always_pin flag ONLY, so a
+        #     non-strict install doesn't start pinning every high-importance
+        #     episodic row. always_pin is a type-open contract — a sacred
+        #     relationship pins exactly like a preference (matches
+        #     evals._is_force_pinned).
+        # All eligible pins form ONE pool ranked by importance (then confidence),
+        # and the top context_max_pins survive. Ranking as a single pool — rather
+        # than filling preferences first — is what makes always_pin honest when
+        # the flagged set over-subscribes the budget: a corpus with more
+        # always_pin preferences than context_max_pins must not crowd out a
+        # higher-importance sacred relationship pin (the wedding-pin case, found
+        # live 2026-07-09). Lower-importance unmarked preferences are still NOT
+        # force-injected; they appear only when the query-driven search surfaced
+        # them. Taste stays in its task_type lane; working stays session-scoped.
         pin_floor = self.settings.context_always_pin_importance
+        pin_types = [
+            t for t in MemoryType
+            if t not in (MemoryType.TASTE, MemoryType.WORKING)
+        ]
 
         def _force_pins(memory) -> bool:
             if memory.confidence < self.settings.pin_min_confidence:
                 return False
             if (memory.metadata or {}).get("always_pin"):
-                return True
+                return True  # explicit flag: type-open
+            if memory.memory_type not in (MemoryType.PREFERENCE, MemoryType.GOAL):
+                return False  # importance floor is pref/goal-only
             if self.settings.context_pin_requires_always_pin:
                 return False  # strict: only the explicit flag force-pins
             return memory.importance >= pin_floor
 
-        pinned_count = 0
-        for pinned_type, limit in ((MemoryType.PREFERENCE, 8), (MemoryType.GOAL, 5)):
-            if pinned_count >= self.settings.context_max_pins:
-                break
+        pin_candidates: dict[str, object] = {}
+        for pinned_type in pin_types:
             scope = QueryScope(
                 tenant_id=tenant_id,
                 user_id=request.user_id,
@@ -233,16 +249,23 @@ class ContextBuilder:
                 memory_types=[pinned_type],
                 min_importance=self.settings.pin_min_importance,  # fetch wide; filter below
             )
-            candidates = await self.storage.list_memories(
-                scope, limit=limit * 2, order_by="importance", include_embeddings=True
-            )
-            pinned = [m for m in candidates if _force_pins(m)][:limit]
-            for memory in pinned:
-                if pinned_count >= self.settings.context_max_pins:
-                    break
-                if memory.id not in by_id:
-                    by_id[memory.id] = score_memory(memory, relevance=0.5, settings=self.settings)
-                    pinned_count += 1
+            for memory in await self.storage.list_memories(
+                scope,
+                limit=self.settings.context_max_pins * 2,
+                order_by="importance",
+                include_embeddings=True,
+            ):
+                if _force_pins(memory):
+                    pin_candidates[memory.id] = memory
+
+        ranked_pins = sorted(
+            pin_candidates.values(),
+            key=lambda m: (m.importance, m.confidence),
+            reverse=True,
+        )[: self.settings.context_max_pins]
+        for memory in ranked_pins:
+            if memory.id not in by_id:
+                by_id[memory.id] = score_memory(memory, relevance=0.5, settings=self.settings)
 
         # Working memories for the active session, newest first.
         if request.session_id:

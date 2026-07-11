@@ -22,12 +22,16 @@ from .models import (
     ConsolidationReport,
     ContextRequest,
     ContextResult,
+    ConversationHit,
+    ConversationMessage,
     Memory,
     MemoryCreate,
+    MemoryExplanation,
     MemoryNotFound,
     MemoryState,
     MemoryType,
     MemoryUpdate,
+    PersonaDoc,
     RelationType,
     ScoredMemory,
     SearchQuery,
@@ -366,8 +370,39 @@ class MemoryService:
         namespace: str = "default",
         tenant_id: str = "default",
     ) -> list[tuple[Memory, bool]]:
-        """Extract memories from a conversation and store them."""
+        """Extract memories from a conversation and store them.
+
+        With conversation_capture on, the raw turns are archived FIRST (L0),
+        and every extracted memory carries metadata.source_message_ids — the
+        provenance chain that lets explain() walk from a distilled claim back
+        to the exact turns it came from. L0 write failure never blocks
+        extraction: losing evidence is bad, losing the memory is worse.
+        """
+        source_ids: list[str] = []
+        if self.settings.conversation_capture and messages:
+            l0_rows = [
+                ConversationMessage(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    namespace=namespace,
+                    role=message.role,
+                    content=message.content,
+                )
+                for message in messages
+                if message.content.strip()
+            ]
+            try:
+                await self.storage.add_conversation_messages(l0_rows)
+                source_ids = [row.id for row in l0_rows]
+            except Exception:
+                logger.exception("L0 conversation capture failed; extraction continues")
+
         items = await self.extraction.extract_messages(messages)
+        metadata_base: dict[str, Any] = {}
+        if source_ids:
+            metadata_base["source_message_ids"] = source_ids
         payloads = [
             MemoryCreate(
                 user_id=user_id,
@@ -378,7 +413,7 @@ class MemoryService:
                 memory_type=item.memory_type,
                 importance=item.importance,
                 confidence=item.confidence,
-                metadata={"extracted_by": item.source},
+                metadata={"extracted_by": item.source, **metadata_base},
             )
             for item in items
         ]
@@ -455,6 +490,75 @@ class MemoryService:
         await self.get(memory_id, tenant_id)  # 404 if not visible in this tenant
         return await self.storage.get_versions(memory_id)
 
+    async def explain(self, memory_id: str, tenant_id: str = "default") -> MemoryExplanation:
+        """Provenance drill-down: memory -> versions -> graph edges -> the raw
+        conversation turns it was extracted from. Deterministic walk, no
+        scoring — this is the "where did you get that idea?" tool."""
+        memory = await self.get(memory_id, tenant_id)
+        versions = await self.storage.get_versions(memory_id)
+        relationships = await self.storage.get_relationships(memory_id)
+        # enrich edges with the other memory's content so the caller doesn't
+        # need N follow-up fetches to read the graph
+        for edge in relationships:
+            other = await self.storage.get(edge["other_id"], tenant_id)
+            edge["other_content"] = other.content if other else None
+            edge["other_state"] = other.state.value if other else None
+        source_ids = (memory.metadata or {}).get("source_message_ids") or []
+        sources = (
+            await self.storage.get_conversation_messages(source_ids, tenant_id)
+            if source_ids
+            else []
+        )
+        return MemoryExplanation(
+            memory=memory, versions=versions, relationships=relationships, sources=sources
+        )
+
+    async def search_conversations(
+        self,
+        user_id: str,
+        query: str,
+        tenant_id: str = "default",
+        namespace: str | None = None,
+        namespaces: list[str] | None = None,
+        session_id: str | None = None,
+        top_k: int = 10,
+        since_days: float | None = None,
+    ) -> list[ConversationHit]:
+        """Full-text search over the raw L0 archive — catches what extraction
+        missed ("what did we discuss last Tuesday?"). Empty query = most
+        recent turns in scope."""
+        scope = QueryScope(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            namespace=namespace,
+            namespaces=namespaces,
+            session_id=session_id,
+        )
+        since = utcnow() - timedelta(days=since_days) if since_days else None
+        hits = await self.storage.search_conversations(scope, query, k=top_k, since=since)
+        return [ConversationHit(message=m, score=round(s, 4)) for m, s in hits]
+
+    async def compile_persona(
+        self,
+        user_id: str,
+        tenant_id: str = "default",
+        namespace: str | None = None,
+        namespaces: list[str] | None = None,
+        include_ids: bool = True,
+        token_budget: int | None = None,
+    ) -> PersonaDoc:
+        """Compile the deterministic L3 persona document (persona.py)."""
+        from .persona import PersonaCompiler
+
+        return await PersonaCompiler(self.storage, self.settings).compile(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            namespace=namespace,
+            namespaces=namespaces,
+            include_ids=include_ids,
+            token_budget=token_budget,
+        )
+
     # -- maintenance --------------------------------------------------------------------
 
     async def consolidate(
@@ -478,6 +582,10 @@ class MemoryService:
             archive_before=now - timedelta(days=self.settings.cold_to_archived_days),
         )
         report = await self.storage.apply_lifecycle(cutoffs)
+        if self.settings.conversation_capture and self.settings.conversation_retention_days > 0:
+            report.pruned_conversations = await self.storage.prune_conversations(
+                now - timedelta(days=self.settings.conversation_retention_days)
+            )
         moved = (
             report.expired_working
             + report.active_to_warm

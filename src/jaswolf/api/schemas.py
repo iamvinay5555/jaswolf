@@ -91,6 +91,9 @@ class SearchIn(BaseModel):
     agent_id: str | None = None
     session_id: str | None = None
     namespace: str | None = None
+    # read across several namespaces (own + shared), mirroring ContextIn's
+    # shared_namespace surface; overrides namespace when set (models.SearchQuery)
+    namespaces: list[str] | None = None
     memory_types: list[MemoryType] | None = None
     mode: SearchMode = SearchMode.HYBRID
     top_k: int = Field(default=8, ge=1, le=100)
@@ -156,3 +159,51 @@ class ConsolidateIn(BaseModel):
     namespace: str | None = None
     memory_types: list[MemoryType] | None = None
     dry_run: bool = False
+
+
+class ConversationSearchIn(BaseModel):
+    user_id: str
+    query: str = ""
+    namespace: str | None = None
+    namespaces: list[str] | None = None
+    session_id: str | None = None
+    top_k: int = Field(default=10, ge=1, le=100)
+    since_days: float | None = Field(default=None, gt=0)
+
+
+class ConversationMessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    session_id: str | None
+    agent_id: str | None
+    namespace: str
+    created_at: datetime
+    score: float
+
+
+class ConversationSearchResponse(BaseModel):
+    results: list[ConversationMessageOut]
+    count: int
+
+
+class ExplainResponse(BaseModel):
+    memory: MemoryOut
+    versions: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    sources: list[ConversationMessageOut]
+
+
+class PersonaIn(BaseModel):
+    user_id: str
+    namespace: str | None = None
+    namespaces: list[str] | None = None
+    include_ids: bool = True
+    token_budget: int | None = Field(default=None, ge=50, le=32_000)
+
+
+class PersonaResponse(BaseModel):
+    text: str
+    memory_ids: list[str]
+    token_estimate: int
+    compiled_at: datetime

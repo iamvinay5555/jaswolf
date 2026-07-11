@@ -107,6 +107,27 @@ async def forget_impl(
     return {"deleted": await provider.delete_memory(memory_id, hard=hard)}
 
 
+async def search_conversations_impl(
+    provider: JaswolfMemoryProvider,
+    query: str,
+    limit: int = 10,
+    since_days: float | None = None,
+) -> list[dict[str, Any]]:
+    return await provider.search_conversations(query, top_k=limit, since_days=since_days)
+
+
+async def explain_memory_impl(
+    provider: JaswolfMemoryProvider, memory_id: str
+) -> dict[str, Any]:
+    explanation = await provider.explain_memory(memory_id)
+    return explanation if explanation is not None else {"error": "memory not found"}
+
+
+async def get_persona_impl(provider: JaswolfMemoryProvider) -> str:
+    doc = await provider.get_persona()
+    return doc.get("text", "")
+
+
 async def memory_health_impl(provider: JaswolfMemoryProvider) -> dict[str, Any]:
     return await provider.health_check()
 
@@ -243,6 +264,35 @@ def create_server(settings: JaswolfSettings | None = None, *, fastmcp_lifespan: 
     async def forget(memory_id: str, hard: bool = False) -> dict[str, Any]:
         """Delete a memory by id (soft by default)."""
         return await forget_impl(await ensure_provider(), memory_id, hard)
+
+    @mcp.tool()
+    async def search_conversations(
+        query: str, limit: int = 10, since_days: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Full-text search over raw past conversation turns (the L0 archive).
+        Use when memory search comes up empty but the topic was probably
+        discussed — e.g. "what did we decide about X last week?". Empty query
+        returns the most recent turns. Requires conversation capture to be
+        enabled; returns [] otherwise."""
+        return await search_conversations_impl(
+            await ensure_provider(), query, limit, since_days
+        )
+
+    @mcp.tool()
+    async def explain_memory(memory_id: str) -> dict[str, Any]:
+        """Show where a memory came from: its version history, its graph edges
+        (superseded/merged/derived), and the raw conversation turns it was
+        extracted from. Use when the user asks "why do you think that?" or a
+        remembered fact looks wrong."""
+        return await explain_memory_impl(await ensure_provider(), memory_id)
+
+    @mcp.tool()
+    async def get_persona() -> str:
+        """Compiled at-a-glance profile of the user (preferences, goals,
+        relationships, key facts) with source memory ids. Deterministic view
+        over stored memories — it never speculates. Useful at session start or
+        before personal recommendations."""
+        return await get_persona_impl(await ensure_provider())
 
     @mcp.tool()
     async def memory_health() -> dict[str, Any]:

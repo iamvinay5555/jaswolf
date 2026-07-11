@@ -116,6 +116,33 @@ class JaswolfSettings(BaseSettings):
     context_share_taste: float = 0.12
     context_max_taste: int = 6  # cap on taste entries fetched per task_type
 
+    # --- L0 conversation archive (semantic-pyramid evidence layer) ---
+    # Opt-in: store raw conversation turns alongside extracted memories, so
+    # every memory can drill down to its source ("where did this come from?")
+    # and the agent can search transcripts extraction may have missed.
+    conversation_capture: bool = False
+    # days a raw turn is kept before the sweeper prunes it; 0 = keep forever.
+    # Memories extracted FROM pruned turns are unaffected — only the raw
+    # evidence expires, never the distilled claim.
+    conversation_retention_days: float = 90.0
+
+    # --- persona (compiled L3 view) ---
+    # token cap for the compiled persona document. Deterministic render —
+    # raising it adds more traced lines, never more speculation.
+    persona_token_budget: int = 400
+
+    # --- observe cadence (provider-side extraction scheduling) ---
+    # 1 = extract on every observe() call (classic behavior). N>1 buffers
+    # turns and extracts every N — batching gives the extractor more context
+    # per pass and cuts LLM-extraction cost on chatty sessions.
+    observe_every_n: int = 1
+    # warm-up: a fresh session extracts at turn 1, then 2, 4, 8… up to N, so
+    # the agent isn't amnesiac for the first N turns of a new conversation.
+    observe_warmup: bool = True
+    # a buffer idle this long is flushed by the provider's sweep loop — the
+    # session is probably over; don't sit on unextracted turns.
+    observe_idle_flush_seconds: float = 600.0
+
     # --- extraction ---
     extraction_strategy: str = "rules"  # rules | llm | hybrid
     llm_base_url: str | None = None     # OpenAI-compatible endpoint for extraction/merging

@@ -12,8 +12,17 @@ import logging
 from importlib import resources
 from typing import Any
 
+from datetime import datetime
+
 from ..keywords import candidate_tokens, discriminative_tokens
-from ..models import Memory, MemoryState, MemoryType, SweepReport, utcnow
+from ..models import (
+    ConversationMessage,
+    Memory,
+    MemoryState,
+    MemoryType,
+    SweepReport,
+    utcnow,
+)
 from .base import LifecycleCutoffs, QueryScope
 
 logger = logging.getLogger("jaswolf.storage.postgres")
@@ -402,6 +411,140 @@ class PostgresStore:
                 " VALUES ($1,$2,$3,$4)",
                 from_id, to_id, relation, utcnow(),
             )
+
+    async def get_relationships(self, memory_id: str) -> list[dict[str, Any]]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT from_id, to_id, relation, created_at FROM memory_relationships
+                WHERE from_id = $1 OR to_id = $1 ORDER BY created_at""",
+                memory_id,
+            )
+        out = []
+        for r in rows:
+            outgoing = str(r["from_id"]) == memory_id
+            out.append(
+                {
+                    "relation": r["relation"],
+                    "direction": "outgoing" if outgoing else "incoming",
+                    "other_id": str(r["to_id"] if outgoing else r["from_id"]),
+                    "created_at": r["created_at"].isoformat(),
+                }
+            )
+        return out
+
+    # -- L0 conversation archive -----------------------------------------------------
+
+    @staticmethod
+    def _row_to_conversation(row) -> ConversationMessage:
+        return ConversationMessage(
+            id=str(row["id"]),
+            tenant_id=row["tenant_id"],
+            user_id=row["user_id"],
+            agent_id=row["agent_id"],
+            session_id=row["session_id"],
+            namespace=row["namespace"],
+            role=row["role"],
+            content=row["content"],
+            created_at=row["created_at"],
+        )
+
+    async def add_conversation_messages(self, messages: list[ConversationMessage]) -> None:
+        if not messages:
+            return
+        async with self._pool.acquire() as conn:
+            await conn.executemany(
+                """INSERT INTO conversation_messages
+                (id, tenant_id, user_id, agent_id, session_id, namespace, role, content, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING""",
+                [
+                    (
+                        m.id, m.tenant_id, m.user_id, m.agent_id, m.session_id,
+                        m.namespace, m.role, m.content, m.created_at,
+                    )
+                    for m in messages
+                ],
+            )
+
+    async def get_conversation_messages(
+        self, ids: list[str], tenant_id: str
+    ) -> list[ConversationMessage]:
+        if not ids:
+            return []
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT * FROM conversation_messages
+                WHERE id = ANY($1::uuid[]) AND tenant_id = $2 ORDER BY created_at""",
+                ids, tenant_id,
+            )
+        return [self._row_to_conversation(r) for r in rows]
+
+    def _conv_scope_where(self, scope: QueryScope, params: list[Any]) -> str:
+        """Identity-axis scoping only — conversation rows have no state/type."""
+        clauses = []
+
+        def bind(value: Any) -> str:
+            params.append(value)
+            return f"${len(params)}"
+
+        clauses.append(f"tenant_id = {bind(scope.tenant_id)}")
+        if scope.user_id is not None:
+            clauses.append(f"user_id = {bind(scope.user_id)}")
+        if scope.agent_id is not None:
+            clauses.append(f"agent_id = {bind(scope.agent_id)}")
+        if scope.session_id is not None:
+            clauses.append(f"session_id = {bind(scope.session_id)}")
+        if scope.namespaces:
+            clauses.append(f"namespace = ANY({bind(list(scope.namespaces))})")
+        elif scope.namespace is not None:
+            clauses.append(f"namespace = {bind(scope.namespace)}")
+        return " AND ".join(clauses)
+
+    async def search_conversations(
+        self,
+        scope: QueryScope,
+        query: str,
+        k: int,
+        since: datetime | None = None,
+    ) -> list[tuple[ConversationMessage, float]]:
+        params: list[Any] = []
+        where = self._conv_scope_where(scope, params)
+        if since is not None:
+            params.append(since)
+            where += f" AND created_at >= ${len(params)}"
+        tokens = candidate_tokens(query, min_len=self.keyword_min_len)
+        async with self._pool.acquire() as conn:
+            if not tokens:
+                params.append(k)
+                rows = await conn.fetch(
+                    f"""SELECT * FROM conversation_messages WHERE {where}
+                    ORDER BY created_at DESC LIMIT ${len(params)}""",
+                    *params,
+                )
+            else:
+                params.append(" | ".join(tokens))
+                ts_param = f"${len(params)}"
+                params.append(k)
+                rows = await conn.fetch(
+                    f"""SELECT *, ts_rank(to_tsvector('english', content),
+                                          to_tsquery('english', {ts_param})) AS rank
+                    FROM conversation_messages
+                    WHERE {where}
+                      AND to_tsvector('english', content) @@ to_tsquery('english', {ts_param})
+                    ORDER BY rank DESC, created_at DESC LIMIT ${len(params)}""",
+                    *params,
+                )
+        n = len(rows)
+        return [
+            (self._row_to_conversation(r), 1.0 - (i / max(1, n)))
+            for i, r in enumerate(rows)
+        ]
+
+    async def prune_conversations(self, before: datetime) -> int:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM conversation_messages WHERE created_at < $1", before
+            )
+        return int(result.split()[-1])
 
     # -- lifecycle sweep ------------------------------------------------------------------
 

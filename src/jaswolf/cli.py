@@ -72,6 +72,43 @@ def _stats(args: argparse.Namespace) -> None:
     asyncio.run(_with_service(run))
 
 
+def _persona(args: argparse.Namespace) -> None:
+    async def run(service: MemoryService) -> None:
+        namespaces = args.namespaces.split(",") if args.namespaces else None
+        doc = await service.compile_persona(
+            user_id=args.user_id,
+            namespace=args.namespace,
+            namespaces=namespaces,
+            include_ids=not args.no_ids,
+            token_budget=args.budget,
+        )
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as f:
+                f.write(doc.text + "\n")
+            print(
+                f"wrote {args.out} ({doc.token_estimate} tokens, "
+                f"{len(doc.memory_ids)} source memories)"
+            )
+        else:
+            print(doc.text or "(no persona — no qualifying memories yet)")
+
+    asyncio.run(_with_service(run))
+
+
+def _explain(args: argparse.Namespace) -> None:
+    async def run(service: MemoryService) -> None:
+        from .models import MemoryNotFound
+
+        try:
+            explanation = await service.explain(args.id)
+        except MemoryNotFound:
+            print(f"memory not found: {args.id}", file=sys.stderr)
+            sys.exit(1)
+        print(explanation.model_dump_json(indent=2, exclude={"memory": {"embedding"}}))
+
+    asyncio.run(_with_service(run))
+
+
 def _redact(value: str | None) -> str:
     """Mask credentials in connection URLs; pass everything else through."""
     if not value:
@@ -428,6 +465,23 @@ def main(argv: list[str] | None = None) -> None:
     stats = sub.add_parser("stats", help="memory counts by state/type")
     stats.add_argument("--user-id", default=None)
     stats.set_defaults(fn=_stats)
+
+    persona = sub.add_parser(
+        "persona", help="compile the deterministic persona doc (who this user is, with sources)"
+    )
+    persona.add_argument("--user-id", required=True)
+    persona.add_argument("--namespace", default=None)
+    persona.add_argument("--namespaces", default=None, help="comma-separated read scope, e.g. jasmine,shared")
+    persona.add_argument("--out", default=None, help="write to a file (e.g. persona.md) instead of stdout")
+    persona.add_argument("--budget", type=int, default=None, help="token cap override")
+    persona.add_argument("--no-ids", action="store_true", help="omit source memory ids")
+    persona.set_defaults(fn=_persona)
+
+    explain = sub.add_parser(
+        "explain", help="provenance drill-down for one memory (versions, edges, source turns)"
+    )
+    explain.add_argument("--id", required=True)
+    explain.set_defaults(fn=_explain)
 
     diagnose = sub.add_parser("diagnose", help="print a paste-ready diagnostic report")
     diagnose.add_argument("--user-id", default=None, help="also run a live search/context probe")

@@ -121,3 +121,70 @@ async def test_provider_remote_matches_embedded_shapes(settings, service):
         assert health["status"] == "ok"
     finally:
         await provider.close()
+
+
+async def test_provider_search_reads_shared_namespace(settings):
+    # search_memory must read the SAME namespace surface as build_context
+    # (own + shared). Before 2026-07-09 it searched only the own namespace, so
+    # "do you remember X?" tool calls missed every shared pin while the
+    # context injector saw them — a silent dual-brain.
+    from jaswolf.models import MemoryCreate, MemoryType
+
+    provider = await JaswolfMemoryProvider.embedded(
+        settings=settings, user_id="alice",
+        namespace="default", shared_namespace="shared", auto_sweep=False,
+    )
+    try:
+        await provider._service.add(
+            MemoryCreate(
+                user_id="alice",
+                content="Wedding anniversary is April 2, married to Jamie",
+                memory_type=MemoryType.RELATIONSHIP,
+                importance=1.0,
+                namespace="shared",
+                metadata={"always_pin": True},
+            )
+        )
+        results = await provider.search_memory("wedding anniversary April 2", top_k=5)
+        assert results, "shared-namespace memory not found by provider search"
+        contents = [r["memory"]["content"] for r in results]
+        assert any("April 2" in c for c in contents)
+
+        # parity: build_context sees it too (same surface)
+        context = await provider.build_context(query="wedding anniversary")
+        assert "April 2" in context
+    finally:
+        await provider.close()
+
+
+async def test_provider_build_context_threads_task_type(settings):
+    # task_type must flow through the provider into ContextRequest so the
+    # engine's Taste lane can fire on ordinary chat turns (2026-07-09: the
+    # plugin path had no way to declare it, so taste was deployed-but-dead).
+    from jaswolf.models import MemoryCreate, MemoryType
+
+    provider = await JaswolfMemoryProvider.embedded(
+        settings=settings, user_id="alice", auto_sweep=False,
+    )
+    try:
+        await provider._service.add(
+            MemoryCreate(
+                user_id="alice",
+                content="Answer briefly; skip the preamble",
+                memory_type=MemoryType.TASTE,
+                importance=0.9,
+                metadata={
+                    "explicit_signal": True,
+                    "why_useful": "keeps chat answers tight",
+                    "where_to_apply": ["agent_behavior"],
+                },
+            )
+        )
+        without = await provider.build_context(query="what should I cook tonight?")
+        assert "skip the preamble" not in without
+        with_task = await provider.build_context(
+            query="what should I cook tonight?", task_type="agent_behavior"
+        )
+        assert "skip the preamble" in with_task
+    finally:
+        await provider.close()

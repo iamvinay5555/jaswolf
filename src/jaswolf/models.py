@@ -181,6 +181,53 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ConversationMessage(BaseModel):
+    """One raw conversation turn — the L0 evidence layer.
+
+    Memories are distilled claims; these are the ground truth they were
+    distilled from. Stored only when conversation_capture is enabled, and
+    immutable once written: corrections happen in the memory layer, never by
+    rewriting history.
+    """
+
+    id: str = Field(default_factory=new_id)
+    tenant_id: str = "default"
+    user_id: str
+    agent_id: str | None = None
+    session_id: str | None = None
+    namespace: str = "default"
+    role: str
+    content: str
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ConversationHit(BaseModel):
+    message: ConversationMessage
+    score: float = 0.0
+
+
+class MemoryExplanation(BaseModel):
+    """Full drill-down for one memory: the row, its history, its graph
+    edges, and the raw conversation turns it was extracted from. Answers
+    "where did the agent get this idea?" deterministically."""
+
+    memory: Memory
+    versions: list[dict[str, Any]] = Field(default_factory=list)
+    relationships: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[ConversationMessage] = Field(default_factory=list)
+
+
+class PersonaDoc(BaseModel):
+    """Compiled at-a-glance user profile (L3). A deterministic VIEW over
+    stored memories — every line traces to a memory id, so the persona can
+    never claim something the atom layer doesn't back."""
+
+    text: str
+    memory_ids: list[str] = Field(default_factory=list)
+    token_estimate: int = 0
+    compiled_at: datetime = Field(default_factory=utcnow)
+
+
 class ContextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -253,6 +300,7 @@ class SweepReport(BaseModel):
     active_to_warm: int = 0
     warm_to_cold: int = 0
     cold_to_archived: int = 0
+    pruned_conversations: int = 0
     swept_at: datetime = Field(default_factory=utcnow)
 
 

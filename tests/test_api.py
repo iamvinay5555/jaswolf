@@ -239,3 +239,41 @@ async def test_taste_capture_and_task_context_over_rest(client):
     })
     assert without_task.status_code == 200
     assert "workflow" not in without_task.json()["text"]
+
+
+async def test_search_endpoint_reads_namespaces(client):
+    # SearchIn.namespaces: the REST surface for own+shared reads, mirroring
+    # ContextIn.shared_namespace (2026-07-09 search/context parity fix)
+    await client.post(
+        "/v1/memories",
+        json={
+            "user_id": "alice",
+            "content": "Wedding anniversary is April 2",
+            "memory_type": "relationship",
+            "namespace": "shared",
+            "importance": 1.0,
+        },
+    )
+    own_only = await client.post(
+        "/v1/memories/search",
+        json={"user_id": "alice", "query": "wedding anniversary", "namespace": "default"},
+    )
+    assert own_only.status_code == 200
+    assert own_only.json()["count"] == 0
+
+    # namespace + namespaces together, exactly as the provider sends them:
+    # namespaces must override the single-namespace scope (a server that
+    # silently drops the unknown field would return 0 here, not pass)
+    both = await client.post(
+        "/v1/memories/search",
+        json={
+            "user_id": "alice",
+            "query": "wedding anniversary",
+            "namespace": "default",
+            "namespaces": ["default", "shared"],
+        },
+    )
+    assert both.status_code == 200
+    body = both.json()
+    assert body["count"] >= 1
+    assert any("April 2" in r["memory"]["content"] for r in body["results"])

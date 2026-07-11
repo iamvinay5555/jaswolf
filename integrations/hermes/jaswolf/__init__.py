@@ -60,12 +60,18 @@ class JaswolfProvider(MemoryProvider):
         import inspect
 
         params = inspect.signature(JaswolfMemoryProvider.remote).parameters
-        if "shared_namespace" not in params:
+        ctx_params = inspect.signature(JaswolfMemoryProvider.build_context).parameters
+        missing = [
+            name for name, sig_params in (
+                ("shared_namespace", params), ("task_type", ctx_params),
+            ) if name not in sig_params
+        ]
+        if missing:
             logger.error(
-                "jaswolf SDK %s is too old for this plugin (no `shared_namespace`). "
+                "jaswolf SDK %s is too old for this plugin (missing %s). "
                 "Upgrade the Hermes venv: pip install --upgrade jaswolf. "
                 "Refusing to activate to avoid a green-but-broken provider.",
-                getattr(jaswolf, "__version__", "?"),
+                getattr(jaswolf, "__version__", "?"), ", ".join(missing),
             )
             return False
         return True
@@ -96,6 +102,24 @@ class JaswolfProvider(MemoryProvider):
         # showed up as silent "degraded" turns. Background prefetch + per-session
         # cache still keep the live path fast.
         self._timeout = float(os.environ.get("JASWOLF_MEMORY_TIMEOUT", "6.0"))
+        # Declared kind of work for ordinary chat turns — unlocks the engine's
+        # Taste section (rules with matching where_to_apply). Default
+        # "agent_behavior": that is what a chat turn is. Set the env var to ""
+        # to disable taste injection entirely. An unknown value would 422 every
+        # context call (degraded = NO memory at all), so validate here and fail
+        # soft to no-taste instead.
+        task_type = os.environ.get("JASWOLF_MEMORY_TASK_TYPE", "agent_behavior") or None
+        if task_type is not None:
+            from jaswolf.models import TASTE_TASK_TYPES
+
+            if task_type not in TASTE_TASK_TYPES:
+                logger.warning(
+                    "JASWOLF_MEMORY_TASK_TYPE=%r is not a known task type %s; "
+                    "continuing WITHOUT taste injection",
+                    task_type, sorted(TASTE_TASK_TYPES),
+                )
+                task_type = None
+        self._task_type = task_type
         # durable write-ahead journal: a write survives a mid-turn gateway kill
         # (2026-06-15 lost-memory incident) — replayed on next startup. Default
         # per profile so bots don't share a journal.
@@ -155,14 +179,18 @@ class JaswolfProvider(MemoryProvider):
         if cached is not None:
             return cached
         try:
-            return self._submit(self._provider.build_context(query=query)).result(self._timeout)
+            return self._submit(
+                self._provider.build_context(query=query, task_type=self._task_type)
+            ).result(self._timeout)
         except Exception as exc:
             self._degraded("prefetch", exc)
             return ""
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         key = session_id or "_"
-        future = self._submit(self._provider.build_context(query=query))
+        future = self._submit(
+            self._provider.build_context(query=query, task_type=self._task_type)
+        )
 
         def _store(f) -> None:
             try:

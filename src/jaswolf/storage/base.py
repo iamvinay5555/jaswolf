@@ -11,7 +11,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
-from ..models import Memory, MemoryState, MemoryType, SweepReport, SEARCHABLE_STATES
+from ..models import (
+    ConversationMessage,
+    Memory,
+    MemoryState,
+    MemoryType,
+    SweepReport,
+    SEARCHABLE_STATES,
+)
 
 
 @dataclass
@@ -105,6 +112,26 @@ class StorageBackend(Protocol):
     async def get_versions(self, memory_id: str) -> list[dict[str, Any]]: ...
 
     async def add_relationship(self, from_id: str, to_id: str, relation: str) -> None: ...
+
+    async def get_relationships(self, memory_id: str) -> list[dict[str, Any]]: ...
+
+    # -- L0 conversation archive ------------------------------------------
+
+    async def add_conversation_messages(self, messages: list[ConversationMessage]) -> None: ...
+
+    async def get_conversation_messages(
+        self, ids: list[str], tenant_id: str
+    ) -> list[ConversationMessage]: ...
+
+    async def search_conversations(
+        self,
+        scope: QueryScope,
+        query: str,
+        k: int,
+        since: datetime | None = None,
+    ) -> list[tuple[ConversationMessage, float]]: ...
+
+    async def prune_conversations(self, before: datetime) -> int: ...
 
     async def apply_lifecycle(self, cutoffs: LifecycleCutoffs) -> SweepReport: ...
 

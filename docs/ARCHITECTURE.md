@@ -136,6 +136,32 @@ memories alive.
 5. Render markdown (default) or XML, then a final verify-and-evict loop
    guarantees `token_estimate ≤ budget`.
 
+## Semantic pyramid (v0.3.0)
+
+Structural layers above and below the atom store, adopted after the
+TencentDB-Agent-Memory review (docs/SEMANTIC_PYRAMID.md) — pyramid on top of
+JASWOLF's physics, never in place of them:
+
+* **L0 conversation archive** (`conversation_capture`, opt-in): raw turns
+  land in `conversation_messages` (FTS-indexed, immutable) *before*
+  extraction; the sweeper prunes them after `conversation_retention_days`.
+  Extracted memories carry `metadata.source_message_ids` — provenance.
+* **`explain(memory_id)`**: deterministic drill-down — memory → versions →
+  relationships (both directions, content-enriched) → source turns. REST
+  (`/v1/memories/{id}/explain`), MCP (`explain_memory`), CLI (`jaswolf explain`).
+* **`search_conversations`**: recall-first FTS over transcripts (stopword
+  filter only, no corpus-DF gate — deliberate: an agent searching its own
+  history wants hits). Empty query lists recent turns.
+* **Persona (L3)** (`persona.py`): a compiled *view*, not a generative pass —
+  preferences/goals/relationships/high-importance facts, `always_pin` first,
+  identity gates identical to context pinning (`pin_min_confidence`,
+  semantic ≥ 0.7 importance, test rows excluded), token-capped, every line
+  tagged `(mem:id)`. The persona can only claim what the atoms claim.
+* **Observe cadence** (provider): `observe_every_n` buffers turns per
+  session with a warm-up ramp (1→2→4→…→N) and an idle flush; buffered calls
+  are journaled individually, and a failed flush restores the buffer.
+  Default (1) is byte-for-byte the classic per-turn path.
+
 ## Memory evolution
 
 * **Consolidation** (`consolidation.py`): per type, cluster stored

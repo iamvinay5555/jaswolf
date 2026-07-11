@@ -104,3 +104,66 @@ async def test_server_registers_expected_tools(tmp_path):
         "build_memory_context", "record_conversation", "recall",
         "remember", "search_memory", "forget", "memory_health",
     } <= tools
+
+
+# -- semantic-pyramid tools (v0.3.0) ----------------------------------------
+
+
+@pytest.fixture
+async def capture_provider(tmp_path):
+    settings = JaswolfSettings(
+        database_url=f"sqlite:///{tmp_path}/mcp_capture.db",
+        embedding_provider="hash",
+        conversation_capture=True,
+        sweep_interval_seconds=3600,
+        log_level="WARNING",
+    )
+    p = await JaswolfMemoryProvider.embedded(settings=settings, user_id="alice", auto_sweep=False)
+    yield p
+    await p.close()
+
+
+async def test_search_conversations_tool(capture_provider):
+    from jaswolf.mcp_server import search_conversations_impl
+
+    await record_conversation_impl(capture_provider, [
+        {"role": "user", "content": "let's plan the Hakone leg of the Japan trip"},
+    ])
+    rows = await search_conversations_impl(capture_provider, "Hakone Japan trip")
+    assert rows and "Hakone" in rows[0]["content"]
+    for r in rows:
+        assert {"role", "content", "created_at", "score"} <= set(r)
+
+
+async def test_search_conversations_tool_empty_without_capture(provider):
+    from jaswolf.mcp_server import search_conversations_impl
+
+    await record_conversation_impl(provider, [
+        {"role": "user", "content": "chatter that is not captured"},
+    ])
+    assert await search_conversations_impl(provider, "chatter") == []
+
+
+async def test_explain_memory_tool(capture_provider):
+    from jaswolf.mcp_server import explain_memory_impl
+
+    out = await record_conversation_impl(capture_provider, [
+        {"role": "user", "content": "My office is in Changi Business Park"},
+    ])
+    assert out["stored"] >= 1
+    hits = await capture_provider.search_memory("office Changi", top_k=1)
+    memory_id = hits[0]["memory"]["id"]
+    explanation = await explain_memory_impl(capture_provider, memory_id)
+    assert explanation["memory"]["id"] == memory_id
+    assert explanation["sources"], "explain must include L0 source turns"
+    assert await explain_memory_impl(capture_provider, "nope") == {"error": "memory not found"}
+
+
+async def test_get_persona_tool(provider):
+    from jaswolf.mcp_server import get_persona_impl
+
+    assert await get_persona_impl(provider) == ""  # nothing identity-grade yet
+    await remember_impl(provider, "User prefers Python over JavaScript", "preference", 0.9)
+    text = await get_persona_impl(provider)
+    assert "# Persona: alice" in text
+    assert "Python over JavaScript" in text

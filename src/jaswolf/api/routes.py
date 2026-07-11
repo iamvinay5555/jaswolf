@@ -21,12 +21,18 @@ from .schemas import (
     ConsolidateIn,
     ContextIn,
     ContextResponse,
+    ConversationMessageOut,
+    ConversationSearchIn,
+    ConversationSearchResponse,
     CreateMemoryResponse,
+    ExplainResponse,
     ExtractIn,
     ExtractResponse,
     MemoryIn,
     MemoryOut,
     MemoryPatch,
+    PersonaIn,
+    PersonaResponse,
     ScoredMemoryOut,
     SearchIn,
     SearchResponse,
@@ -101,6 +107,32 @@ async def get_memory(
     except MemoryNotFound:
         raise HTTPException(status_code=404, detail="memory not found")
     return MemoryOut.from_memory(memory, include_embedding=include_embedding)
+
+
+@router.get("/memories/{memory_id}/explain", response_model=ExplainResponse)
+async def explain_memory(
+    memory_id: str,
+    tenant: str = Depends(authenticate),
+    service: MemoryService = Depends(get_service),
+):
+    """Provenance drill-down: memory + versions + relationships + source turns."""
+    try:
+        explanation = await service.explain(memory_id, tenant_id=tenant)
+    except MemoryNotFound:
+        raise HTTPException(status_code=404, detail="memory not found")
+    return ExplainResponse(
+        memory=MemoryOut.from_memory(explanation.memory),
+        versions=explanation.versions,
+        relationships=explanation.relationships,
+        sources=[
+            ConversationMessageOut(
+                id=m.id, role=m.role, content=m.content, session_id=m.session_id,
+                agent_id=m.agent_id, namespace=m.namespace, created_at=m.created_at,
+                score=1.0,
+            )
+            for m in explanation.sources
+        ],
+    )
 
 
 @router.get("/memories/{memory_id}/versions")
@@ -200,6 +232,60 @@ async def consolidate_memories(
         namespace=body.namespace,
         memory_types=body.memory_types,
         dry_run=body.dry_run,
+    )
+
+
+@router.post("/conversations/search", response_model=ConversationSearchResponse)
+async def search_conversations(
+    body: ConversationSearchIn,
+    tenant: str = Depends(authenticate),
+    service: MemoryService = Depends(get_service),
+):
+    """Full-text search over the raw L0 conversation archive."""
+    hits = await service.search_conversations(
+        user_id=body.user_id,
+        query=body.query,
+        tenant_id=tenant,
+        namespace=body.namespace,
+        namespaces=body.namespaces,
+        session_id=body.session_id,
+        top_k=body.top_k,
+        since_days=body.since_days,
+    )
+    return ConversationSearchResponse(
+        results=[
+            ConversationMessageOut(
+                id=h.message.id, role=h.message.role, content=h.message.content,
+                session_id=h.message.session_id, agent_id=h.message.agent_id,
+                namespace=h.message.namespace, created_at=h.message.created_at,
+                score=h.score,
+            )
+            for h in hits
+        ],
+        count=len(hits),
+    )
+
+
+@router.post("/persona", response_model=PersonaResponse)
+async def get_persona(
+    body: PersonaIn,
+    tenant: str = Depends(authenticate),
+    service: MemoryService = Depends(get_service),
+):
+    """Compile the deterministic L3 persona document for a user."""
+    doc = await service.compile_persona(
+        user_id=body.user_id,
+        tenant_id=tenant,
+        namespace=body.namespace,
+        namespaces=body.namespaces,
+        include_ids=body.include_ids,
+        token_budget=body.token_budget,
+    )
+    return PersonaResponse(
+        text=doc.text,
+        memory_ids=doc.memory_ids,
+        token_estimate=doc.token_estimate,
+        compiled_at=doc.compiled_at,
     )
 
 

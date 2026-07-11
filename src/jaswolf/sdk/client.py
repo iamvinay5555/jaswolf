@@ -84,6 +84,20 @@ class _Requests:
         return "POST", "/v1/memories/consolidate", {"json": {"user_id": user_id, **kwargs}}
 
     @staticmethod
+    def explain_memory(memory_id: str):
+        return "GET", f"/v1/memories/{memory_id}/explain", {}
+
+    @staticmethod
+    def search_conversations(user_id: str, query: str = "", **kwargs: Any):
+        return "POST", "/v1/conversations/search", {
+            "json": {"user_id": user_id, "query": query, **kwargs}
+        }
+
+    @staticmethod
+    def get_persona(user_id: str, **kwargs: Any):
+        return "POST", "/v1/persona", {"json": {"user_id": user_id, **kwargs}}
+
+    @staticmethod
     def stats(user_id: str | None = None):
         params = {"user_id": user_id} if user_id else {}
         return "GET", "/v1/stats", {"params": params}
@@ -116,6 +130,7 @@ def _make_method(name: str, is_async: bool):
 _METHOD_NAMES = [
     "add_memory", "extract", "get_memory", "get_versions", "update_memory",
     "delete_memory", "search", "build_context", "consolidate", "stats", "sweep", "health",
+    "explain_memory", "search_conversations", "get_persona",
 ]
 
 
