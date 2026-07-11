@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 
 from .config import JaswolfSettings
-from .context_builder import _is_test_memory
+from .context_builder import PIN_TYPES, _is_test_memory, force_pin_eligible
 from .models import Memory, MemoryType, PersonaDoc, utcnow
 from .storage.base import QueryScope, StorageBackend
 from .tokens import estimate_tokens
@@ -50,7 +50,42 @@ class PersonaCompiler:
         token_budget: int | None = None,
     ) -> PersonaDoc:
         budget = token_budget or self.settings.persona_token_budget
+
+        # Tier 1 — Identity: the SAME unified force-pin pool the context
+        # builder injects (force_pin_eligible, importance-ranked, capped at
+        # context_max_pins), rendered before anything else. v0.3.0 filled
+        # per-type sections in order, so a corpus with many pinned
+        # preferences exhausted the budget before the Relationships section
+        # was ever reached — the persona omitted pins the prompt was
+        # injecting on every turn (the wedding-pin crowd-out shape again,
+        # this time in the renderer; live report, 2026-07-11). One pool, ranked,
+        # first — the persona and the prompt can no longer disagree about
+        # identity.
+        pin_candidates: dict[str, Memory] = {}
+        for pinned_type in PIN_TYPES:
+            scope = QueryScope(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                namespace=namespace,
+                namespaces=namespaces,
+                memory_types=[pinned_type],
+                min_importance=self.settings.pin_min_importance,
+            )
+            for memory in await self.storage.list_memories(
+                scope, limit=self.settings.context_max_pins * 2, order_by="importance"
+            ):
+                if force_pin_eligible(memory, self.settings) and not _is_test_memory(memory):
+                    pin_candidates[memory.id] = memory
+        identity = sorted(
+            pin_candidates.values(),
+            key=lambda m: (m.importance, m.confidence),
+            reverse=True,
+        )[: self.settings.context_max_pins]
+        identity_ids = {m.id for m in identity}
+
         sections: list[tuple[str, list[Memory]]] = []
+        if identity:
+            sections.append(("Identity (always pinned)", identity))
         for mtype, title, limit, min_importance in _PERSONA_SECTIONS:
             scope = QueryScope(
                 tenant_id=tenant_id,
@@ -63,7 +98,9 @@ class PersonaCompiler:
             rows = await self.storage.list_memories(scope, limit=limit, order_by="importance")
             rows = [
                 m for m in rows
-                if m.confidence >= self.settings.pin_min_confidence and not _is_test_memory(m)
+                if m.confidence >= self.settings.pin_min_confidence
+                and not _is_test_memory(m)
+                and m.id not in identity_ids
             ]
             if rows:
                 sections.append((title, rows))

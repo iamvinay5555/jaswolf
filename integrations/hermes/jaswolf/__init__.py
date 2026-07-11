@@ -20,6 +20,11 @@ Config (env on the Hermes process):
   JASWOLF_API_KEY        optional; matches the server's api_keys
   JASWOLF_MEMORY_USER_ID default default             (MUST match the DB's user_id)
   JASWOLF_MEMORY_TIMEOUT default 3.0  seconds for a prefetch before degrading
+
+When JASWOLF_MEMORY_USER_ID is set, it is the durable memory principal and
+wins over gateway transport kwargs.user_id (e.g. Telegram numeric ids).
+Multi-user stays valid because each profile sets its own configured
+principal.
 """
 
 from __future__ import annotations
@@ -34,6 +39,34 @@ from typing import Any, Dict, List, Optional
 from agent.memory_provider import MemoryProvider  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_memory_user_id(
+    *,
+    env_user_id: str | None,
+    kwargs_user_id: str | None = None,
+    default: str = "default",
+) -> str:
+    """Resolve the durable memory user_id for this provider instance.
+
+    Precedence:
+      1. configured env principal JASWOLF_MEMORY_USER_ID (when non-empty)
+      2. gateway/platform kwargs user_id (only if env is unset)
+      3. the default principal
+
+    Why env wins: agent hosts pass Telegram/Discord transport ids as kwargs
+    user_id. Those are correct for allowlisting/delivery, but they must not
+    silently become the durable memory principal when the operator has
+    already configured a stable identity. Multi-profile setups keep working
+    by setting different env values per profile.
+    """
+    configured = (env_user_id or "").strip()
+    if configured:
+        return configured
+    transport = (kwargs_user_id or "").strip() if kwargs_user_id is not None else ""
+    if transport:
+        return transport
+    return default
 
 
 class JaswolfProvider(MemoryProvider):
@@ -81,10 +114,10 @@ class JaswolfProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         from jaswolf import JaswolfMemoryProvider
 
-        self._user_id = (
-            kwargs.get("user_id")
-            or os.environ.get("JASWOLF_MEMORY_USER_ID")
-            or "default"
+        # configured durable principal beats transport id (see module docstring)
+        self._user_id = resolve_memory_user_id(
+            env_user_id=os.environ.get("JASWOLF_MEMORY_USER_ID"),
+            kwargs_user_id=kwargs.get("user_id"),
         )
         # per-bot scope (multi-agent): each bot writes to its own namespace and
         # reads its own + the shared namespace. Defaults keep single-bot setups

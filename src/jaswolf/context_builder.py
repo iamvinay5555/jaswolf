@@ -66,6 +66,32 @@ def _is_test_memory(memory) -> bool:
     return any(marker in low for marker in _TEST_CONTENT_MARKERS)
 
 
+def force_pin_eligible(memory, settings: JaswolfSettings) -> bool:
+    """Identity/safety-grade pin test — the single source of truth shared by
+    the context builder's force-pin tier and the persona compiler's identity
+    tier (v0.3.1). Two selectors drifting is how the persona ended up
+    missing pins the prompt was injecting (live report, 2026-07-11).
+
+    Rules (see the force-pin tier comment in `_gather` for the full why):
+    confidence gate always applies; explicit metadata.always_pin is type-open;
+    the importance floor is preference/goal-only and disabled in strict mode.
+    """
+    if memory.confidence < settings.pin_min_confidence:
+        return False
+    if (memory.metadata or {}).get("always_pin"):
+        return True  # explicit flag: type-open
+    if memory.memory_type not in (MemoryType.PREFERENCE, MemoryType.GOAL):
+        return False  # importance floor is pref/goal-only
+    if settings.context_pin_requires_always_pin:
+        return False  # strict: only the explicit flag force-pins
+    return memory.importance >= settings.context_always_pin_importance
+
+
+# Types that can hold a force pin — taste stays in its task_type lane,
+# working stays session-scoped.
+PIN_TYPES = [t for t in MemoryType if t not in (MemoryType.TASTE, MemoryType.WORKING)]
+
+
 class ContextBuilder:
     def __init__(self, storage: StorageBackend, retrieval: RetrievalEngine, settings: JaswolfSettings):
         self.storage = storage
@@ -222,25 +248,8 @@ class ContextBuilder:
         # live 2026-07-09). Lower-importance unmarked preferences are still NOT
         # force-injected; they appear only when the query-driven search surfaced
         # them. Taste stays in its task_type lane; working stays session-scoped.
-        pin_floor = self.settings.context_always_pin_importance
-        pin_types = [
-            t for t in MemoryType
-            if t not in (MemoryType.TASTE, MemoryType.WORKING)
-        ]
-
-        def _force_pins(memory) -> bool:
-            if memory.confidence < self.settings.pin_min_confidence:
-                return False
-            if (memory.metadata or {}).get("always_pin"):
-                return True  # explicit flag: type-open
-            if memory.memory_type not in (MemoryType.PREFERENCE, MemoryType.GOAL):
-                return False  # importance floor is pref/goal-only
-            if self.settings.context_pin_requires_always_pin:
-                return False  # strict: only the explicit flag force-pins
-            return memory.importance >= pin_floor
-
         pin_candidates: dict[str, object] = {}
-        for pinned_type in pin_types:
+        for pinned_type in PIN_TYPES:
             scope = QueryScope(
                 tenant_id=tenant_id,
                 user_id=request.user_id,
@@ -255,7 +264,7 @@ class ContextBuilder:
                 order_by="importance",
                 include_embeddings=True,
             ):
-                if _force_pins(memory):
+                if force_pin_eligible(memory, self.settings):
                     pin_candidates[memory.id] = memory
 
         ranked_pins = sorted(

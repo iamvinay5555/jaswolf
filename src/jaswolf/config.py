@@ -128,8 +128,13 @@ class JaswolfSettings(BaseSettings):
 
     # --- persona (compiled L3 view) ---
     # token cap for the compiled persona document. Deterministic render —
-    # raising it adds more traced lines, never more speculation.
-    persona_token_budget: int = 400
+    # raising it adds more traced lines, never more speculation. The Identity
+    # tier (the context builder's force-pin pool) renders first, so the
+    # sacred facts survive any budget; 600 leaves headroom for the sections
+    # below it (400 proved too tight on a live corpus with 12 pins,
+    # 2026-07-11). Installs that read the persona as a dossier rather than a
+    # prompt block can comfortably run 1200.
+    persona_token_budget: int = 600
 
     # --- observe cadence (provider-side extraction scheduling) ---
     # 1 = extract on every observe() call (classic behavior). N>1 buffers

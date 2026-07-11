@@ -5,7 +5,9 @@ from jaswolf.models import MemoryCreate, MemoryType
 
 async def _seed(service, user_id="alice"):
     rows = [
-        ("User prefers Python over JavaScript", MemoryType.PREFERENCE, 0.9, None),
+        # importance 0.85 keeps this below the non-strict pin floor (0.9), so
+        # it exercises the ordinary Preferences section, not the Identity tier
+        ("User prefers Python over JavaScript", MemoryType.PREFERENCE, 0.85, None),
         ("Never call him Mr Smith", MemoryType.PREFERENCE, 0.95, {"always_pin": True}),
         ("Ship Project Atlas v1 by August", MemoryType.GOAL, 0.85, None),
         ("Dana is Alice's cofounder and daily collaborator", MemoryType.RELATIONSHIP, 0.8, None),
@@ -27,7 +29,7 @@ async def test_persona_renders_all_sections_with_ids(service):
     created = await _seed(service)
     doc = await service.compile_persona(user_id="alice")
     assert doc.text.startswith("# Persona: alice")
-    for title in ("Preferences", "Goals", "Relationships", "Key facts"):
+    for title in ("Identity (always pinned)", "Preferences", "Goals", "Relationships", "Key facts"):
         assert f"## {title}" in doc.text
     assert "User prefers Python over JavaScript" in doc.text
     # every line traces: short ids present, and full ids in memory_ids
@@ -36,12 +38,51 @@ async def test_persona_renders_all_sections_with_ids(service):
     assert pin.id in doc.memory_ids
 
 
-async def test_persona_always_pin_leads_its_section(service):
+async def test_persona_identity_tier_leads_and_dedupes(service):
     await _seed(service)
     doc = await service.compile_persona(user_id="alice")
-    prefs = doc.text.split("## Preferences")[1].split("##")[0]
-    lines = [line for line in prefs.strip().splitlines() if line.startswith("- ")]
-    assert "Mr Smith" in lines[0], "always_pin memory must survive truncation first"
+    identity = doc.text.split("## Identity (always pinned)")[1].split("\n## ")[0]
+    assert "Mr Smith" in identity, "always_pin memory belongs in the Identity tier"
+    # a pin renders once: not repeated in its type section below
+    assert doc.text.count("Never call him Mr Smith") == 1
+
+
+async def test_persona_identity_pool_matches_context_pins(service):
+    """The renderer bug found live 2026-07-11: the first pyramid release
+    filled per-type sections in order, so many pinned preferences exhausted
+    the budget before Relationships — the persona omitted pins the context
+    builder injected every turn. The Identity tier is the SAME ranked pool,
+    rendered first."""
+    from jaswolf.models import MemoryCreate
+
+    # over-subscribe the pin budget with flagged preferences…
+    for i in range(service.settings.context_max_pins + 4):
+        await service.add(
+            MemoryCreate(
+                user_id="alice",
+                content=f"Pinned working style rule number {i} for daily behavior",
+                memory_type=MemoryType.PREFERENCE,
+                importance=0.9,
+                confidence=0.95,
+                metadata={"always_pin": True},
+            )
+        )
+    # …plus one higher-importance sacred relationship pin
+    sacred, _ = await service.add(
+        MemoryCreate(
+            user_id="alice",
+            content="Married to Jamie; wedding anniversary is April 2",
+            memory_type=MemoryType.RELATIONSHIP,
+            importance=1.0,
+            confidence=1.0,
+            metadata={"always_pin": True},
+        )
+    )
+    doc = await service.compile_persona(user_id="alice", token_budget=150)
+    assert "wedding anniversary" in doc.text, (
+        "sacred relationship pin crowded out of the persona by preference pins"
+    )
+    assert sacred.id in doc.memory_ids
 
 
 async def test_persona_empty_when_no_memories(service):
