@@ -583,9 +583,23 @@ class MemoryService:
         )
         report = await self.storage.apply_lifecycle(cutoffs)
         if self.settings.conversation_capture and self.settings.conversation_retention_days > 0:
-            report.pruned_conversations = await self.storage.prune_conversations(
-                now - timedelta(days=self.settings.conversation_retention_days)
+            conversation_cutoff = now - timedelta(
+                days=self.settings.conversation_retention_days
             )
+            if self.settings.conversation_archive_dir:
+                # cold journal: export to the archive first; a turn is only
+                # deleted after its archive write is durable (archive.py)
+                from .archive import ConversationArchiver
+
+                archived, pruned = await ConversationArchiver(
+                    self.storage, self.settings.conversation_archive_dir
+                ).archive_and_prune(conversation_cutoff)
+                report.archived_conversations = archived
+                report.pruned_conversations = pruned
+            else:
+                report.pruned_conversations = await self.storage.prune_conversations(
+                    conversation_cutoff
+                )
         moved = (
             report.expired_working
             + report.active_to_warm

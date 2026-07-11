@@ -546,6 +546,26 @@ class PostgresStore:
             )
         return int(result.split()[-1])
 
+    async def fetch_conversations_before(
+        self, before: datetime, limit: int
+    ) -> list[ConversationMessage]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT * FROM conversation_messages WHERE created_at < $1
+                ORDER BY created_at, id LIMIT $2""",
+                before, limit,
+            )
+        return [self._row_to_conversation(r) for r in rows]
+
+    async def delete_conversations(self, ids: list[str]) -> int:
+        if not ids:
+            return 0
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM conversation_messages WHERE id = ANY($1::uuid[])", ids
+            )
+        return int(result.split()[-1])
+
     # -- lifecycle sweep ------------------------------------------------------------------
 
     async def apply_lifecycle(self, cutoffs: LifecycleCutoffs) -> SweepReport:

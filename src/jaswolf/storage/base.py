@@ -133,6 +133,16 @@ class StorageBackend(Protocol):
 
     async def prune_conversations(self, before: datetime) -> int: ...
 
+    # cold-journal support (archive.py): fetch expiring rows in stable batches,
+    # then delete EXACTLY the archived ids — never a blanket time-based delete,
+    # so a row is only ever removed after its archive write succeeded.
+
+    async def fetch_conversations_before(
+        self, before: datetime, limit: int
+    ) -> list[ConversationMessage]: ...
+
+    async def delete_conversations(self, ids: list[str]) -> int: ...
+
     async def apply_lifecycle(self, cutoffs: LifecycleCutoffs) -> SweepReport: ...
 
     async def stats(self, tenant_id: str, user_id: str | None = None) -> dict[str, Any]: ...

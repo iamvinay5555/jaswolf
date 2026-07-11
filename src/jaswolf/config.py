@@ -125,6 +125,12 @@ class JaswolfSettings(BaseSettings):
     # Memories extracted FROM pruned turns are unaffected — only the raw
     # evidence expires, never the distilled claim.
     conversation_retention_days: float = 90.0
+    # cold journal: when set, expiring turns are exported to monthly
+    # JSONL.gz files in this directory BEFORE pruning, and a turn is only
+    # ever deleted after its archive write is fsynced — the life-journal
+    # invariant (archive.py). Unset = prune without archiving (v0.14 mode).
+    # Flat files on purpose: a deep archive should outlive the software.
+    conversation_archive_dir: str | None = None
 
     # --- persona (compiled L3 view) ---
     # token cap for the compiled persona document. Deterministic render —

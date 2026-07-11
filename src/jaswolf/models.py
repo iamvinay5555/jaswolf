@@ -301,6 +301,9 @@ class SweepReport(BaseModel):
     warm_to_cold: int = 0
     cold_to_archived: int = 0
     pruned_conversations: int = 0
+    # cold journal: turns exported to the archive before pruning (archive.py).
+    # With an archive dir configured, pruned can never exceed archived.
+    archived_conversations: int = 0
     swept_at: datetime = Field(default_factory=utcnow)
 
 

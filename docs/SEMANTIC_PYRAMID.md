@@ -41,6 +41,16 @@ directly: the "what did we discuss last Tuesday?" query that extraction may
 have missed. Recall-first on purpose: cheap stopword filter, no corpus-DF
 gate — an agent searching its own transcripts wants hits, not precision.
 
+**Cold journal (v0.4.0).** With `conversation_archive_dir` set, expiring
+turns are exported to monthly `YYYY-MM.jsonl.gz` files BEFORE pruning, under
+the invariant *a turn is only deleted after its archive write is fsynced* —
+deletion is by the exact archived ids, never a blanket time cutoff, and any
+write failure halts pruning for that pass (`archive.py`). The live DB stays
+a rolling window; the journal keeps everything, forever, in flat files that
+outlive the software (readable with `zgrep`/`gzip.open` in any decade).
+This is the substrate for the future timeline layer: life, month by month,
+rebuildable from `read_archive_month()`.
+
 ### 2. Provenance + `explain`
 
 With capture on, every extracted memory carries
@@ -112,7 +122,8 @@ flush restores the buffer for retry.
 
 ```bash
 JASWOLF_CONVERSATION_CAPTURE=true        # opt in to L0
-JASWOLF_CONVERSATION_RETENTION_DAYS=90   # 0 = keep forever
+JASWOLF_CONVERSATION_RETENTION_DAYS=90   # 0 = keep forever (live DB)
+JASWOLF_CONVERSATION_ARCHIVE_DIR=~/.hermes/jaswolf_journal_archive  # cold journal
 JASWOLF_PERSONA_TOKEN_BUDGET=400
 JASWOLF_OBSERVE_EVERY_N=4                # 1 = classic per-turn extraction
 JASWOLF_OBSERVE_WARMUP=true

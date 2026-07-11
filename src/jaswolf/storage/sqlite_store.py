@@ -833,6 +833,38 @@ class SQLiteStore:
             self._conn.commit()
             return cur.rowcount
 
+    async def fetch_conversations_before(
+        self, before: datetime, limit: int
+    ) -> list[ConversationMessage]:
+        return await asyncio.to_thread(self._sync_fetch_conversations_before, before, limit)
+
+    def _sync_fetch_conversations_before(
+        self, before: datetime, limit: int
+    ) -> list[ConversationMessage]:
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                """SELECT * FROM conversation_messages WHERE created_at < ?
+                ORDER BY created_at, id LIMIT ?""",
+                (before.timestamp(), limit),
+            ).fetchall()
+        return [self._row_to_conversation(r) for r in rows]
+
+    async def delete_conversations(self, ids: list[str]) -> int:
+        if not ids:
+            return 0
+        return await asyncio.to_thread(self._sync_delete_conversations, ids)
+
+    def _sync_delete_conversations(self, ids: list[str]) -> int:
+        placeholders = ",".join("?" * len(ids))
+        with self._lock:
+            assert self._conn is not None
+            cur = self._conn.execute(
+                f"DELETE FROM conversation_messages WHERE id IN ({placeholders})", ids
+            )
+            self._conn.commit()
+            return cur.rowcount
+
     # -- lifecycle sweep -------------------------------------------------------
 
     async def apply_lifecycle(self, cutoffs: LifecycleCutoffs) -> SweepReport:

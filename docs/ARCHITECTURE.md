@@ -146,6 +146,10 @@ JASWOLF's physics, never in place of them:
   land in `conversation_messages` (FTS-indexed, immutable) *before*
   extraction; the sweeper prunes them after `conversation_retention_days`.
   Extracted memories carry `metadata.source_message_ids` — provenance.
+* **Cold journal** (`conversation_archive_dir`, v0.4.0): expiring turns are
+  exported to monthly JSONL.gz files before pruning; deletion is by the
+  exact archived ids only after an fsynced write (`archive.py`), so the live
+  DB stays a rolling window while the journal keeps everything forever.
 * **`explain(memory_id)`**: deterministic drill-down — memory → versions →
   relationships (both directions, content-enriched) → source turns. REST
   (`/v1/memories/{id}/explain`), MCP (`explain_memory`), CLI (`jaswolf explain`).
